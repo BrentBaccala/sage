@@ -162,6 +162,13 @@ ext_modules = [
 
     Extension('*', ['sage/calculus/**/*.pyx']),
 
+    OptionalExtension('sage.calculus.DifferentialAlgebra',
+              sources = ["sage/calculus/DifferentialAlgebra.pyx"],
+              language = 'c',
+              libraries = ["blad", "bmi"],
+              depends = [SAGE_INC + "/blad.h", SAGE_INC + "/bmi.h"],
+              package = 'blad'),
+
     ################################
     ##
     ## sage.categories
