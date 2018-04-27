@@ -1,0 +1,11 @@
+--- a/Singular/LIB/polymake.lib	2017-04-12 11:54:29.000000000 -0400
++++ b/Singular/LIB/polymake.lib	2018-04-26 20:56:58.407577678 -0400
+@@ -138,7 +138,7 @@
+   option(noredefine);
+   LIB "customstd.so";
+   LIB "gfanlib.so";
+-  LIB "polymake.so";
++  // LIB "polymake.so";
+   option(set,save);
+ }
+ 
