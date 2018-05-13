@@ -1573,7 +1573,7 @@ cdef class PowerSeries(AlgebraElement):
             sage: R.<u> = GF(3)[[]]
             sage: p = 1 + 2 * u^2
             sage: p.nth_root(4)
-            2 + u^2 + 2*u^6 + u^8 + 2*u^12 + u^14 + O(u^20)
+            1 + 2*u^2 + u^6 + 2*u^8 + u^12 + 2*u^14 + O(u^20)
             sage: p.nth_root(4)**4
             1 + 2*u^2 + O(u^20)
         """
