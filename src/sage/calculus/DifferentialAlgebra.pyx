@@ -58,10 +58,10 @@ EXAMPLES:
     reaction would equilibrate if they were alone)::
 
         sage: syst = [diff(E(t),t)   == - F_1(t) + k(2)*ES(t),
-                      diff(S(t),t)   == - F_1(t),
-                      diff (ES(t),t) == - k(2)*ES(t) + F_1(t),
-                      diff (P(t),t)  == k(2)*ES(t),
-                      k(1)*E(t)*S(t) - k(-1)*ES(t) == 0]
+        ....:         diff(S(t),t)   == - F_1(t),
+        ....:         diff (ES(t),t) == - k(2)*ES(t) + F_1(t),
+        ....:         diff (P(t),t)  == k(2)*ES(t),
+        ....:         k(1)*E(t)*S(t) - k(-1)*ES(t) == 0]
         sage: syst
         [D[0](E)(t) == k(2)*ES(t) - F_1(t), D[0](S)(t) == -F_1(t), D[0](ES)(t) == -k(2)*ES(t) + F_1(t), D[0](P)(t) == k(2)*ES(t), 0 == k(1)*E(t)*S(t) - k(-1)*ES(t)]
 
@@ -294,6 +294,58 @@ cimport sage.libs.blad_c  as blad_c
 cimport sage.libs.bmi_c as bmi_c
 
 include "sage/libs/bmi_strings.pyx"
+
+# Insane code.  We often pass data to the bmi library by printing it
+# as a string, then parsing back the result.  A big problem with this
+# is that we need to evaluate the result in a namespace that contains
+# the variable names in the equations.  In general, this might be
+# impossible, since a variable's print name might not correspond to
+# its Python name.  However, it's the best we've got for now...
+
+import re
+import inspect
+import itertools
+
+def eval_sage(x):
+    for i in itertools.count():
+        namespace = inspect.currentframe(i).f_globals
+        try:
+            result = eval (preparse (x), namespace)
+            break
+        except KeyError:
+            pass
+    return result
+
+def translate_str(x):
+    r"""
+    Translates a string from Sage format to BMI's format
+
+    TESTS::
+
+        sage: from sage.calculus.DifferentialAlgebra import translate_str
+        sage: translate_str('diff(x(t), t)')
+        'D[0](x)(t)'
+        sage: translate_str('diff(x(t), t), diff(y(t), t)')
+        'D[0](x)(t), D[0](y)(t)'
+        sage: translate_str('diff(x(t), t, t)')
+        'D[0,0](x)(t)'
+        sage: translate_str('diff(f(x,y), x)')
+        'D[0](f)(x,y)'
+        sage: translate_str('diff(f(x,y), y)')
+        'D[1](f)(x,y)'
+
+    """
+
+    def callable(m):
+       func = m.group(1)
+       funcvar1 = m.group(2)
+       funcvars = [funcvar1] + re.split(r',\s*',m.group(3))[1:]
+       diffvar1 = m.group(5)
+       diffvars = [diffvar1] + re.split(r',\s*',m.group(6))[1:]
+
+       return 'D[' + ','.join([str(funcvars.index(v)) for v in diffvars]) + "](" + func + ")(" + ','.join(funcvars) + ")"
+
+    return re.sub(r'diff\((\w+)\((\w)+((,\s*\w+)*)\),\s*(\w+)((,\s*\w+)*)\)', callable, x)
 
 # DifferentialRing
 cdef class DifferentialRing:
@@ -637,6 +689,7 @@ cdef class DifferentialRing:
         if variable != None and basefield != None:
             raise RuntimeError, "the variable and the base field must not be both specified"
         streqns = bytes (equation)
+        streqns = translate_str(streqns)
         if variable == None:
             if basefield == None:
                 strvar = bytes (0)
@@ -648,6 +701,7 @@ cdef class DifferentialRing:
                 strrels = basefield.__relations ()
         else:
             strvar = bytes (variable)
+            strvar = translate_str(strvar)
             if basefield == None:
                 strgens = bytes ("")
                 strrels = bytes ("")
@@ -660,7 +714,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -770,6 +824,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         if selection == None:
             strsel = bytes ('rank >= 0')
         else:
@@ -781,7 +836,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -849,6 +904,7 @@ cdef class DifferentialRing:
         cdef bytes strder, mesgerr
         cdef bmi_c.ALGEB_string A
         strder = bytes (derivative)
+        strder = translate_str(strder)
         A = bmi_c.bmi_sage_factor_derivative (
                     strder, self.dring,
                     BMI_IX_undefined, notation, 0, 0)
@@ -856,7 +912,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -954,6 +1010,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         if derivation == None:
             strder = bytes (0)
         else:
@@ -965,7 +1022,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (L)
             bmi_c.bmi_balsa_clear_ALGEB (L)
             raise RuntimeError, mesgerr
-        result = eval (preparse (L.value), globals ())
+        result = eval_sage(L.value)
         bmi_c.bmi_balsa_clear_ALGEB (L)
         return result
 
@@ -1013,6 +1070,7 @@ cdef class DifferentialRing:
             streqns = bytes (ratfrac)
         else:
             streqns = bytes ([ratfrac])
+        streqns = translate_str(streqns)
         if derivation == None:
             strder = bytes (0)
         else:
@@ -1024,7 +1082,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (ratfrac, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1085,6 +1143,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         A = bmi_c.bmi_sage_leading_derivative (
                     streqns, self.dring, int (False),
                     BMI_IX_undefined, notation, 0, 0)
@@ -1092,7 +1151,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1179,6 +1238,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         A = bmi_c.bmi_sage_leading_rank (
                     streqns, self.dring, int (False), int (listform),
                     BMI_IX_undefined, notation, 0, 0)
@@ -1186,7 +1246,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1245,6 +1305,7 @@ cdef class DifferentialRing:
         else:
             streqns = bytes ([equations])
         strvar = bytes (0)
+        streqns = translate_str(streqns)
         A = bmi_c.bmi_sage_leading_coefficient (
                     streqns, self.dring, int (False), strvar,
                     BMI_IX_undefined, notation, 0, 0)
@@ -1252,7 +1313,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1330,10 +1391,12 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         if variable == None:
             strvar = bytes (0)
         else:
             strvar = bytes (variable)
+        strvar = translate_str(strvar)
         A = bmi_c.bmi_sage_leading_coefficient (
                     streqns, self.dring, int (False), strvar,
                     BMI_IX_undefined, notation, 0, 0)
@@ -1341,7 +1404,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1437,10 +1500,12 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         if variable == None:
             strvar = bytes (0)
         else:
             strvar = bytes (variable)
+            strvar = translate_str (strvar)
         A = bmi_c.bmi_sage_tail (
                     streqns, self.dring, int (False), strvar,
                     BMI_IX_undefined, notation, 0, 0)
@@ -1448,7 +1513,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1520,10 +1585,12 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         if variable == None:
             strvar = bytes (0)
         else:
             strvar = bytes (variable)
+            strvar = translate_str(strvar)
         A = bmi_c.bmi_sage_separant (
                     streqns, self.dring, int (False), strvar,
                     BMI_IX_undefined, notation, 0, 0)
@@ -1531,7 +1598,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1619,6 +1686,7 @@ cdef class DifferentialRing:
         else:
             streqns = bytes ([equations])
         strvar = bytes (variable)
+        streqns = translate_str(streqns)
         A = bmi_c.bmi_sage_integrate (
                     self.dring, streqns, strvar, int (iterated),
                     BMI_IX_undefined, notation, 0, 0)
@@ -1626,7 +1694,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1699,6 +1767,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         strders = bytes ([arg for arg in args])
         A = bmi_c.bmi_sage_differentiate (
                     self.dring, streqns, int (False), strders,
@@ -1707,7 +1776,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1811,7 +1880,9 @@ cdef class DifferentialRing:
         cdef bytes streqns, strredset, mesgerr
         cdef bmi_c.ALGEB_string L
         streqns = bytes (polynomial)
+        streqns = translate_str(streqns)
         strredset = bytes (redset)
+        strredset = translate_str(strredset)
         L = bmi_c.bmi_sage_differential_prem2 (
             streqns, strredset, mode, self.dring,
             BMI_IX_undefined, notation, 0, 0)
@@ -1819,7 +1890,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (L)
             bmi_c.bmi_balsa_clear_ALGEB (L)
             raise RuntimeError, mesgerr
-        result = eval (preparse (L.value), globals ())
+        result = eval_sage(L.value)
         bmi_c.bmi_balsa_clear_ALGEB (L)
         return result
 
@@ -1881,6 +1952,7 @@ cdef class DifferentialRing:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         strders = bytes ([1])
         A = bmi_c.bmi_sage_differentiate (
                     self.dring, streqns, int (False), strders,
@@ -1889,7 +1961,7 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         if not isinstance (equations, list):
             result = result [0]
         bmi_c.bmi_balsa_clear_ALGEB (A)
@@ -1963,13 +2035,14 @@ cdef class DifferentialRing:
         cdef bytes streqns, mesgerr
         cdef bmi_c.ALGEB_string L
         streqns = bytes (polynomials)
+        streqns = translate_str(streqns)
         L = bmi_c.bmi_sage_sort (
                 streqns, mode, self.dring, BMI_IX_undefined, notation, 0, 0)
         if bmi_c.bmi_sage_is_error (L):
             mesgerr = bmi_c.bmi_sage_mesgerr (L)
             bmi_c.bmi_balsa_clear_ALGEB (L)
             raise RuntimeError, mesgerr
-        result = eval (preparse (L.value), globals ())
+        result = eval_sage (L.value)
         bmi_c.bmi_balsa_clear_ALGEB (L)
         return result
 
@@ -2154,12 +2227,16 @@ cdef class DifferentialRing:
         streqns = bytes (eqns)
         strineq = bytes (ineq)
         strattr = string.replace (bytes (attributes), "'", "")
+        streqns = translate_str(streqns)
+        strineq = translate_str(strineq)
         if basefield == None:
             F = BaseFieldExtension ()
         else:
             F = basefield
         strgens = bytes (F.generators ())
         strrels = F.__relations ()
+        strgens = translate_str(strgens)
+        strrels = translate_str(strrels)
         L = bmi_c.bmi_sage_RosenfeldGroebner (
                     streqns, strineq, strgens, strrels,
                     strattr, self.dring, singsol, dimlb, 1,
@@ -2216,6 +2293,7 @@ cdef class DifferentialRing:
         cdef bytes L_as_string, mesgerr
         cdef list eqns, ineq
         L_as_string = bytes(L)
+        L_as_string = translate_str(L_as_string)
         P = bmi_c.bmi_sage_process_equations (
                     L_as_string, self.dring,
                     BMI_IX_undefined, BMI_IX_undefined, 0, 0)
@@ -2223,8 +2301,10 @@ cdef class DifferentialRing:
             mesgerr = bmi_c.bmi_sage_mesgerr (P)
             bmi_c.bmi_balsa_clear_ALGEB (P)
             raise RuntimeError, mesgerr
-        eqns = eval (preparse (P.value.tab [1].value), globals ())
-        ineq = eval (preparse (P.value.tab [2].value), globals ())
+
+        eqns = eval_sage (P.value.tab [1].value)
+        ineq = eval_sage (P.value.tab [2].value)
+
         bmi_c.bmi_balsa_clear_ALGEB (P)
         return (eqns, ineq)
 
@@ -2373,6 +2453,7 @@ cdef class RegularDifferentialChain:
         cdef bytes streqns, strattr, mesgerr
         eqns, ineq = DRing.__process_equations (equations)
         streqns = bytes (eqns)
+        streqns = translate_str (streqns)
         strattr = string.replace (bytes (attributes), "'", "")
         A = bmi_c.bmi_sage_pretend_regular_differential_chain (
                 streqns, DRing.dring, strattr, int (pretend),
@@ -2536,6 +2617,7 @@ cdef class RegularDifferentialChain:
                     BMI_IX_undefined, notation, 0, 0)
         else:
             strsel = bytes (selection)
+            strsel = translate_str(strsel)
             A = bmi_c.bmi_sage_equations_with_criterion_RDC (
                     self.regchain, int (False), int (solved), strsel,
                     BMI_IX_undefined, notation, 0, 0)
@@ -2543,7 +2625,9 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+
+        result = eval_sage (A.value)
+
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2645,7 +2729,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2704,7 +2788,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2758,7 +2842,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2828,7 +2912,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2898,7 +2982,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -2968,7 +3052,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -3054,7 +3138,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (L)
             bmi_c.bmi_balsa_clear_ALGEB (L)
             raise RuntimeError, mesgerr
-        result = eval (preparse (L.value), globals ())
+        result = eval_sage(L.value)
         bmi_c.bmi_balsa_clear_ALGEB (L)
         return result
 
@@ -3151,13 +3235,14 @@ cdef class RegularDifferentialChain:
         cdef bytes streqns, mesgerr
         cdef bmi_c.ALGEB_string L
         streqns = bytes (polynomial)
+        streqns = translate_str(streqns)
         L = bmi_c.bmi_sage_differential_prem (
             streqns, mode, self.regchain, BMI_IX_undefined, notation, 0, 0)
         if bmi_c.bmi_sage_is_error (L):
             mesgerr = bmi_c.bmi_sage_mesgerr (L)
             bmi_c.bmi_balsa_clear_ALGEB (L)
             raise RuntimeError, mesgerr
-        result = eval (preparse (L.value), globals ())
+        result = eval_sage(L.value)
         bmi_c.bmi_balsa_clear_ALGEB (L)
         return result
 
@@ -3344,6 +3429,7 @@ cdef class RegularDifferentialChain:
             streqns = bytes (equations)
         else:
             streqns = bytes ([equations])
+        streqns = translate_str(streqns)
         A = bmi_c.bmi_sage_normal_form (
                     self.regchain, streqns,
                     BMI_IX_undefined, notation, 0, 0)
@@ -3351,7 +3437,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (preparse (A.value), globals ())
+        result = eval_sage(A.value)
         result = [elt[0] for elt in result]
         if not isinstance (equations, list):
             result = result [0]
@@ -3573,12 +3659,15 @@ cdef class RegularDifferentialChain:
         cdef bmi_c.ALGEB_string A
 
         strpoly = bytes (polynomial)
+        strpoly = translate_str(strpoly)
         if basefield == None:
             F = BaseFieldExtension ()
         else:
             F = basefield
         strgens = bytes (F.generators ())
         strrels = F.__relations ()
+        strgens = translate_str(strgens)
+        strrels = translate_str(strrels)
         A = bmi_c.bmi_sage_preparation_equation (
                 strpoly, self.regchain, strgens, strrels, int (congruence),
                 zstring, BMI_IX_undefined, notation, 0, 0)
@@ -3591,7 +3680,7 @@ cdef class RegularDifferentialChain:
             function (zstring % (i+1))
         newval = bytes (A.value)
         newval = string.replace (newval, "=", "==")
-        result = eval (preparse (newval), globals ())
+        result = eval_sage(newval)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -3632,7 +3721,7 @@ cdef class RegularDifferentialChain:
             mesgerr = bmi_c.bmi_sage_mesgerr (A)
             bmi_c.bmi_balsa_clear_ALGEB (A)
             raise RuntimeError, mesgerr
-        result = eval (A.value, globals ())
+        result = eval_sage(A.value)
         bmi_c.bmi_balsa_clear_ALGEB (A)
         return result
 
@@ -3833,6 +3922,8 @@ cdef class BaseFieldExtension:
             self.gens = generators
             strrels = self.__relations ()
             strgens = bytes (generators)
+            strrels = translate_str(strrels)
+            strgens = translate_str(strgens)
             A = bmi_c.bmi_sage_base_field_generators (
                         strgens, strrels, self.rels.regchain,
                         BMI_IX_undefined, BMI_IX_undefined, 0, 0)
@@ -3840,7 +3931,7 @@ cdef class BaseFieldExtension:
                 mesgerr = bmi_c.bmi_sage_mesgerr (A)
                 bmi_c.bmi_balsa_clear_ALGEB (A)
                 raise RuntimeError, mesgerr
-            self.gens = eval (preparse (A.value), globals ())
+            self.gens = eval_sage(A.value)
         elif ring != None:
             if not isinstance (ring, DifferentialRing):
                 raise TypeError, 'DifferentialRing expected for ring keyword parameter'
@@ -3850,6 +3941,8 @@ cdef class BaseFieldExtension:
             self.gens = generators
             strrels = self.__relations ()
             strgens = bytes (generators)
+            strrels = translate_str(strrels)
+            strgens = translate_str(strgens)
             A = bmi_c.bmi_sage_base_field_generators (
                         strgens, strrels, R.dring,
                         BMI_IX_undefined, BMI_IX_undefined, 0, 0)
@@ -3857,7 +3950,7 @@ cdef class BaseFieldExtension:
                 mesgerr = bmi_c.bmi_sage_mesgerr (A)
                 bmi_c.bmi_balsa_clear_ALGEB (A)
                 raise RuntimeError, mesgerr
-            self.gens = eval (preparse (A.value), globals ())
+            self.gens = eval_sage(A.value)
 
     def __repr__ (self):
         """ The external representation """
@@ -3946,6 +4039,7 @@ cdef class BaseFieldExtension:
         cdef bytes strrels, strattr
         if self.rels_are_provided:
             strrels = bytes (self.rels.equations ())
+            strrels = translate_str(strrels)
             strattr = bytes (self.rels.attributes ())
             strattr = string.replace (bytes (strattr), "'", "")
             return 'regchain (%s, %s)' % (strrels, strattr)
