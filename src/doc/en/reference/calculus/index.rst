@@ -85,6 +85,7 @@ Internal functionality supporting calculus
    sage/symbolic/complexity_measures
    sage/calculus/wester
    sage/calculus/desolvers
+   sage/calculus/DifferentialAlgebra
    sage/calculus/transforms/dwt
    sage/calculus/transforms/dft
    sage/calculus/transforms/fft
