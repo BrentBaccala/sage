@@ -259,6 +259,8 @@ import sage.rings.polynomial.toy_d_basis as toy_d_basis
 
 from warnings import warn
 
+from sage.rings.qqbar_decorators import handle_AA_and_QQbar
+
 from sage.interfaces.magma import magma_gb_standard_options
 from sage.interfaces.singular import singular_gb_standard_options
 from sage.libs.singular.standard_options import libsingular_gb_standard_options
@@ -667,6 +669,7 @@ class MPolynomialIdeal_singular_repr(
         I.plot()
 
     @require_field
+    @cached_method
     @libsingular_gb_standard_options
     def complete_primary_decomposition(self, algorithm="sy"):
         r"""
@@ -759,12 +762,6 @@ class MPolynomialIdeal_singular_repr(
             False
 
         """
-        try:
-            return self.__complete_primary_decomposition[algorithm]
-        except AttributeError:
-            self.__complete_primary_decomposition = {}
-        except KeyError:
-            pass
 
         # Avoid a bug in Singular (see #15745).
         if self.is_one():
@@ -781,9 +778,7 @@ class MPolynomialIdeal_singular_repr(
 
         R = self.ring()
         V = [(R.ideal(X[0]), R.ideal(X[1])) for X in P]
-        V = Sequence(V)
-        self.__complete_primary_decomposition[algorithm] = V
-        return self.__complete_primary_decomposition[algorithm]
+        return Sequence(V)
 
     # Seems useful for Tab-Completion
     primary_decomposition_complete = complete_primary_decomposition
@@ -967,6 +962,7 @@ class MPolynomialIdeal_singular_repr(
         return self == P
 
     @require_field
+    @handle_AA_and_QQbar
     @singular_gb_standard_options
     @libsingular_gb_standard_options
     def triangular_decomposition(self, algorithm=None, singular=singular_default):
@@ -1034,6 +1030,11 @@ class MPolynomialIdeal_singular_repr(
             sage: J = Ideal(x^2+y^2-2, y^2-1)
             sage: J.triangular_decomposition()
             [Ideal (y^2 - 1, x^2 - 1) of Multivariate Polynomial Ring in x, y over Rational Field]
+
+            sage: R.<x,y> = QQbar[]
+            sage: J = Ideal(x^2+y^2-2, y^2-1)
+            sage: J.triangular_decomposition()
+            [Ideal (y^2 - 1, x^2 - 1) of Multivariate Polynomial Ring in x, y over Algebraic Field]
         """
         P = self.ring()
 
@@ -1081,6 +1082,7 @@ class MPolynomialIdeal_singular_repr(
         return sorted(T, key=lambda x: x.gens())
 
     @require_field
+    @handle_AA_and_QQbar
     def dimension(self, singular=singular_default):
         """
         The dimension of the ring modulo this ideal.
@@ -1189,6 +1191,7 @@ class MPolynomialIdeal_singular_repr(
         return self.__dimension
 
     @require_field
+    @handle_AA_and_QQbar
     def vector_space_dimension(self):
         """
         Return the vector space dimension of the ring modulo this ideal. If
@@ -1302,6 +1305,7 @@ class MPolynomialIdeal_singular_repr(
         G = Sequence([P(str(f)) for f in G.iterGB()])
         return G
 
+    @handle_AA_and_QQbar
     @singular_gb_standard_options
     def _groebner_basis_singular(self, algorithm="groebner", *args, **kwds):
         """
@@ -1369,6 +1373,7 @@ class MPolynomialIdeal_singular_repr(
         return S
 
     @cached_method
+    @handle_AA_and_QQbar
     def _groebner_basis_singular_raw(self, algorithm="groebner", singular=singular_default, *args, **kwds):
         r"""
         Return a Groebner basis in Singular format.
@@ -1452,6 +1457,8 @@ class MPolynomialIdeal_singular_repr(
         return S
 
     @require_field
+    @cached_method
+    @handle_AA_and_QQbar
     def genus(self):
         r"""
         Return the genus of the projective curve defined by this ideal,
@@ -1494,14 +1501,11 @@ class MPolynomialIdeal_singular_repr(
             sage: TJ.genus()
             -1
         """
-        try:
-            return self.__genus
-        except AttributeError:
-            import sage.libs.singular.function_factory
-            genus = sage.libs.singular.function_factory.ff.normal__lib.genus
-            self.__genus = Integer(genus(self))
-            return self.__genus
+        import sage.libs.singular.function_factory
+        genus = sage.libs.singular.function_factory.ff.normal__lib.genus
+        return Integer(genus(self))
 
+    @handle_AA_and_QQbar
     @libsingular_gb_standard_options
     def intersection(self, *others):
         """
@@ -1686,6 +1690,7 @@ class MPolynomialIdeal_singular_repr(
         return ret
 
     @require_field
+    @handle_AA_and_QQbar
     def syzygy_module(self):
         r"""
         Computes the first syzygy (i.e., the module of relations of the
@@ -1717,6 +1722,7 @@ class MPolynomialIdeal_singular_repr(
         S = syz(self)
         return matrix(self.ring(), S)
 
+    @handle_AA_and_QQbar
     @singular_gb_standard_options
     @libsingular_gb_standard_options
     def interreduced_basis(self):
@@ -1771,6 +1777,7 @@ class MPolynomialIdeal_singular_repr(
         return self.basis.reduced()
 
     @cached_method
+    @handle_AA_and_QQbar
     @singular_gb_standard_options
     def basis_is_groebner(self, singular=singular_default):
         r"""
@@ -1879,6 +1886,7 @@ class MPolynomialIdeal_singular_repr(
         return True
 
     @require_field
+    @handle_AA_and_QQbar
     @singular_gb_standard_options
     @libsingular_gb_standard_options
     def transformed_basis(self, algorithm="gwalk", other_ring=None, singular=singular_default):
@@ -1970,6 +1978,7 @@ class MPolynomialIdeal_singular_repr(
         else:
             raise TypeError("Cannot convert basis with given algorithm")
 
+    @handle_AA_and_QQbar
     @libsingular_gb_standard_options
     def elimination_ideal(self, variables):
         r"""
@@ -2007,6 +2016,7 @@ class MPolynomialIdeal_singular_repr(
         Is = MPolynomialIdeal(R,self.groebner_basis())
         return MPolynomialIdeal(R, eliminate(Is, prod(variables)) )
 
+    @handle_AA_and_QQbar
     @libsingular_gb_standard_options
     def quotient(self, J):
         r"""
@@ -2043,6 +2053,14 @@ class MPolynomialIdeal_singular_repr(
             sage: eD = Ideal(x, z^2-1)
             sage: I.quotient(eD).gens()
             [2, x*z + x, x*y]
+
+        Check that this method works over QQbar (:trac:`25351`)::
+
+            sage: R.<x,y,z> = QQbar[]
+            sage: I = ideal(x,z)
+            sage: J = ideal(R(1))
+            sage: I.quotient(J)
+            Ideal (z, x) of Multivariate Polynomial Ring in x, y, z over Algebraic Field
         """
         from sage.misc.stopgap import stopgap
         R = self.ring()
@@ -2059,6 +2077,7 @@ class MPolynomialIdeal_singular_repr(
         quotient = sage.libs.singular.function_factory.ff.quotient
         return R.ideal(quotient(self, J))
 
+    @handle_AA_and_QQbar
     def saturation(self, other):
         r"""
         Returns the saturation (and saturation exponent) of the ideal ``self`` with respect to the ideal ``other``
@@ -2078,6 +2097,16 @@ class MPolynomialIdeal_singular_repr(
             sage: J = R.ideal(z)
             sage: I.saturation(J)
             (Ideal (y, x^5) of Multivariate Polynomial Ring in x, y, z over Rational Field, 4)
+
+        TESTS:
+
+        Check that this method works over QQbar (:trac:`25351`)::
+
+            sage: R.<x, y, z> = QQbar[]
+            sage: I = R.ideal(x^5*z^3, x*y*z, y*z^4)
+            sage: J = R.ideal(z)
+            sage: I.saturation(J)
+            (Ideal (y, x^5) of Multivariate Polynomial Ring in x, y, z over Algebraic Field, 4)
         """
         from sage.libs.singular.function_factory import ff
         sat = ff.elim__lib.sat
@@ -2319,6 +2348,20 @@ class MPolynomialIdeal_singular_repr(
             sage: I.variety(QQbar)
             [...a: 0...]
 
+        An early version of :trac:`25351` broke this method by adding the
+        @handle_AA_and_QQbar decorator to it.  To check for this bug, verify
+        that this circle and this hyperbola have two real intersections and
+        two more complex ones::
+
+            sage: K.<x, y> = PolynomialRing(AA)
+            sage: I = Ideal([ x*y - 1, (x-2)^2 + (y-1)^2 - 1])
+            sage: len(I.variety())
+            2
+            sage: K.<x, y> = PolynomialRing(QQbar)
+            sage: I = Ideal([ x*y - 1, (x-2)^2 + (y-1)^2 - 1])
+            sage: len(I.variety())
+            4
+
         ALGORITHM:
 
         Uses triangular decomposition.
@@ -2382,6 +2425,7 @@ class MPolynomialIdeal_singular_repr(
         return V
 
     @require_field
+    @handle_AA_and_QQbar
     def hilbert_polynomial(self, algorithm='sage'):
         r"""
         Return the Hilbert polynomial of this ideal.
@@ -2483,6 +2527,7 @@ class MPolynomialIdeal_singular_repr(
             raise ValueError("'algorithm' must be 'sage' or 'singular'")
 
     @require_field
+    @handle_AA_and_QQbar
     def hilbert_series(self, grading=None, algorithm='sage'):
         r"""
         Return the Hilbert series of this ideal.
@@ -2576,6 +2621,7 @@ class MPolynomialIdeal_singular_repr(
             raise ValueError("'algorithm' must be one of 'sage' or 'singular'")
 
     @require_field
+    @handle_AA_and_QQbar
     def hilbert_numerator(self, grading = None, algorithm = 'sage'):
         r"""
         Return the Hilbert numerator of this ideal.
@@ -2655,6 +2701,7 @@ class MPolynomialIdeal_singular_repr(
             raise ValueError("'algorithm' must be one of 'sage' or 'singular'")
 
     @require_field
+    @handle_AA_and_QQbar
     def _normal_basis_libsingular(self):
         r"""
         Returns the normal basis for a given groebner basis. It will use
@@ -2675,6 +2722,7 @@ class MPolynomialIdeal_singular_repr(
         return PolynomialSequence(self.ring(), kbase_libsingular(self.ring().ideal(gb)), immutable=True)
 
     @require_field
+    @handle_AA_and_QQbar
     def normal_basis(self, algorithm='libsingular', singular=singular_default):
         """
         Returns a vector space basis (consisting of monomials) of the
