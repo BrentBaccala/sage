@@ -65,6 +65,8 @@ from sage.structure.richcmp import richcmp
 from sage.categories.modules import Modules
 from sage.categories.morphism import Morphism
 from sage.categories.action import Action
+from sage.categories.pushout import ConstructionFunctor
+from sage.categories.function_fields import FunctionFields
 
 from .function_field import FunctionField, is_RationalFunctionField
 
@@ -375,6 +377,124 @@ class FunctionFieldDifferential_global(FunctionFieldDifferential):
         power_repr = der._prime_power_representation(self._f)
         return differential(self._field, power_repr[-1])
 
+
+class DifferentialsSpaces(Modules):
+
+    def _repr_(self):
+        """
+        Print the name of the functor ``self``.
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: c = K.space_of_differentials().construction()
+            sage: c[0]
+            DifferentialsSpace
+
+        """
+        return "Space of differentials over " + repr(self.base_ring())
+
+    pass
+
+
+class DifferentialsSpaceFunctor(ConstructionFunctor):
+    """
+    Construction functor for building differential spaces from function fields.
+
+    XXX:
+        The functor is from function fields to DifferentialsSpaces over a field,
+        specified during construction of the functor.  It really should be from
+        function fields to DifferentialsSpaces, with the field specified when
+        the functor is applied.  But DifferentialsSpaces inherits from Modules,
+        and I don't know how to construct a functor to Modules, only to
+        Modules over a given field.
+
+        Equality tests don't work right, because they don't check to see if the
+        same codomain field was specified.
+
+    NOTES:
+        I'm not sure what the rank should be.  I picked 10 because it's one
+        greater than 9, which is the rank of the polynomial functors.
+
+    EXAMPLES::
+
+        sage: K.<x> = FunctionField(QQ)
+        sage: D = K.space_of_differentials()
+        sage: c = D.construction()
+        sage: c[0](c[1]) is D
+        True
+
+    """
+    rank = 10
+
+    def __init__(self, field):
+        """
+        TESTS::
+
+            sage: from sage.rings.function_field.differential import DifferentialsSpaceFunctor
+            sage: K.<x> = FunctionField(QQ)
+            sage: DifferentialsSpaceFunctor(K)(K)
+            Space of differentials of Rational function field in x over Rational Field
+
+        """
+        ConstructionFunctor.__init__(self, FunctionFields(), DifferentialsSpaces(field))
+
+    def _apply_functor(self, F):
+        """
+        Apply the functor ``self`` to the function field F.
+        """
+        return F.space_of_differentials()
+
+    def _apply_functor_to_morphism(self, f):
+        """
+        Apply the functor ``self`` to the function field homomorphism `f`.
+        """
+        raise NotImplementedError
+
+    def __eq__(self, other):
+        """
+        Check whether ``self`` is equal to ``other``.
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: L.<x> = FunctionField(QQbar)
+            sage: c = K.space_of_differentials().construction()
+            sage: d = L.space_of_differentials().construction()
+            sage: c[0] == d[0]
+            True
+        """
+        return isinstance(other, DifferentialsSpaceFunctor)
+
+    def __ne__(self, other):
+        """
+        Check whether ``self`` is not equal to ``other``.
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: D = K.space_of_differentials()
+            sage: c = K.construction()
+            sage: c[0] != QQ.construction()[0]
+            True
+        """
+        return not (self == other)
+
+    def _repr_(self):
+        """
+        Print the name of the functor ``self``.
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: c = K.space_of_differentials().construction()
+            sage: c[0]
+            DifferentialsSpace
+
+        """
+        return "DifferentialsSpace"
+
+
 class DifferentialsSpaceMorphism(Morphism):
     """
     Base class for morphisms between differential spaces of function fields.
@@ -596,7 +716,7 @@ class DifferentialsSpace(Parent):
             sage: L.space_of_differentials()
             Space of differentials of Function field in y defined by y^3 + x^3*y + x
         """
-        Parent.__init__(self, base=field, category=Modules(field))
+        Parent.__init__(self, base=field, category=DifferentialsSpaces(field))
         self._field = field
 
     def _repr_(self):
@@ -632,6 +752,23 @@ class DifferentialsSpace(Parent):
             True
         """
         return differential(self._field, 1, f)
+
+    def construction(self):
+        """
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: D = K.space_of_differentials()
+            sage: D.construction()
+            (DifferentialsSpace,
+             Rational function field in x over Rational Field)
+            sage: f, R = D.construction()
+            sage: f(R)
+            Space of differentials of Rational function field in x over Rational Field
+            sage: f(R) == D
+            True
+        """
+        return DifferentialsSpaceFunctor(self._field), self._field
 
     def _get_action_(self, G, op, self_on_left):
         """
