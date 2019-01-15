@@ -517,6 +517,9 @@ class FunctionField_polymod_kash(FunctionField_polymod):
 
         assert isinstance(polynomial.base_ring(), RationalFunctionField_kash)
 
+        if not polynomial.is_irreducible():
+            raise ValueError("The polynomial must be irreducible")
+
         # the field, without the function field structure (referenced by divisor.py)
 
         # don't set these here; they were set in the superclass constructor
@@ -530,10 +533,6 @@ class FunctionField_polymod_kash(FunctionField_polymod):
         self._place_class = FunctionFieldPlace_kash
 
         self.kash_constant_field = None
-
-        # compute the kash field, so we check for irreducibility
-        # XXX for QQbar, need to check for irreducibility in Sage, over QQbar
-        self.kash()
 
     def kash(self):
 
@@ -561,12 +560,7 @@ class FunctionField_polymod_kash(FunctionField_polymod):
             #kash_polynomial = kTy.Element(map(lambda c: c.element()(x), list(polynomial)))
             kash_polynomial = kTy.Element([self.base_field().to_kash(c) for c in polynomial])
 
-            try:
-                self._kash_ = kash_polynomial.FunctionField()
-            except TypeError as ex:
-                if 'Polynomial must be irreducible' in ex.args[0]:
-                    raise ValueError("The polynomial must be irreducible")
-                raise ex
+            self._kash_ = kash_polynomial.FunctionField()
 
             ybar = self._kash_.gen(1)
 
