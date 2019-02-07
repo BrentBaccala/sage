@@ -2488,6 +2488,18 @@ def cmp_elements_with_same_minpoly(a, b, p):
         1
         sage: cmp_elements_with_same_minpoly(-a, b, p)
         0
+
+    TESTS:
+
+        Check that :trac:`27233` is fixed::
+
+        sage: p = x^2 + 2
+        sage: a = QQbar.polynomial_root(p, CIF(sqrt(-2)))
+        sage: b = QQbar.polynomial_root(p, CIF(-sqrt(-2)))
+        sage: cmp_elements_with_same_minpoly(a, b, p)
+        1
+        sage: cmp_elements_with_same_minpoly(-a, b, p)
+        0
     """
     ar = a._value.real()
     br = b._value.real()
@@ -2506,7 +2518,7 @@ def cmp_elements_with_same_minpoly(a, b, p):
     real = ar.union(br)
     imag = ai.union(bi)
     roots = [r for r in roots if r._value.real().overlaps(real)
-             and r._value.imag().abs().overlaps(imag)]
+             and r._value.imag().overlaps(imag)]
     if len(roots) == 1:
         # There is only a single (real) root matching both descriptors
         # so they both must be that root and therefore equal.
@@ -4373,6 +4385,14 @@ class AlgebraicNumber(AlgebraicNumber_base):
             True
 
             sage: QQbar.zeta(3).real() == -1/2
+            True
+
+            Check that :trac:`27233` is fixed::
+
+            sage: g = QQbar(-27/4)^(1/7)
+            sage: (nf, elems, mor) = number_field_elements_from_algebraics([sqrt(2), sqrt(-1), g])
+            sage: nf2.<n> = NumberField(nf.polynomial(), embedding=mor(nf.0))
+            sage: QQbar(-1/108*n^12) == -g
             True
         """
         # note: we can assume that self is not other here
