@@ -428,6 +428,25 @@ cdef class FunctionFieldElement(FieldElement):
         J = Oinf.ideal(self)
         return I.divisor_of_poles() + J.divisor_of_poles()
 
+    def differential(self):
+        """
+        Return the differential `dx` where `x` is the element.
+
+        EXAMPLES::
+
+            sage: K.<t> = FunctionField(QQ)
+            sage: f = 1 / t
+            sage: f.differential()
+            (-1/t^2) d(t)
+
+            sage: K.<x> = FunctionField(GF(4)); _.<Y> = K[]
+            sage: L.<y> = K.extension(Y^2 + Y + x +1/x)
+            sage: (y^3 + x).differential()
+            (((x^2 + 1)/x^2)*y + (x^4 + x^3 + 1)/x^3) d(x)
+        """
+        M = self.parent().space_of_differentials()
+        return M(self)
+
 cdef class FunctionFieldElement_polymod(FunctionFieldElement):
     """
     Elements of a finite extension of a function field.
@@ -1028,21 +1047,6 @@ cdef class FunctionFieldElement_rational(FunctionFieldElement):
         assert self._x.denominator() == 1
         return self.parent()(self._x.numerator().inverse_mod(f.numerator()))
 
-    def differential(self):
-        """
-        Return the differential `dx` where `x` is the element.
-
-        EXAMPLES::
-
-            sage: K.<t> = FunctionField(QQ)
-            sage: f = 1 / t
-            sage: f.differential()
-            (-1/t^2) d(t)
-        """
-        from .differential import differential
-
-        return differential(self.parent(), 1, self)
-
     def derivative(self):
         """
         Return the derivative of the rational function.
@@ -1104,20 +1108,6 @@ cdef class FunctionFieldElement_global(FunctionFieldElement_polymod):
         prime = place.prime_ideal()
         ideal = prime.ring().ideal(self)
         return prime.valuation(ideal)
-
-    def differential(self):
-        """
-        Return the differential `dx` where `x` is the element.
-
-        EXAMPLES::
-
-            sage: K.<x> = FunctionField(GF(4)); _.<Y> = K[]
-            sage: L.<y> = K.extension(Y^2 + Y + x +1/x)
-            sage: (y^3 + x).differential()
-            (((x^2 + 1)/x^2)*y + (x^4 + x^3 + 1)/x^3) d(x)
-        """
-        M = self.parent().space_of_differentials()
-        return M(self)
 
     def derivative(self):
         """
