@@ -1641,6 +1641,12 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
         """
         return "Ideal (%s) of %s"%(', '.join([repr(g) for g in self.gens()]), self.ring())
 
+    def _latex_(self):
+        """
+        Return the LaTeX representation of the ideal.
+        """
+        return '(' + ', '.join([latex(g) for g in self.gens()]) + ')'
+
     def __contains__(self, x):
         """
         Return ``True`` if ``x`` is in the ideal.
