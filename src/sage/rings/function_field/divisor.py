@@ -769,6 +769,11 @@ class FunctionFieldDivisor(ModuleElement):
             i,ideg = pivot_row[j][0]
             for k in range( den.degree() - ideg + 1 ):
                 basis.append(one.shift(k) * gens[i])
+        # Step 5: clean the basis by making the numerator of the zero'th order term monic
+        try:
+            basis = [e/e.element().numerator().constant_coefficient().numerator().leading_coefficient() for e in basis]
+        except:
+            pass
         # Done!
         return basis
 
