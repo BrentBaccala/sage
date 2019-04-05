@@ -163,6 +163,15 @@ class FunctionFieldDifferential_global(FunctionFieldDifferential):
             r = '({})'.format(self._f) + ' ' + r
         return r
 
+    def _latex_(self):
+        """
+        Return the LaTeX representation of the differential.
+        """
+        r =  'd' + self._field.base_field().gen()._latex_()
+        if self._f != 1:
+            r = self._f._latex_() + '\, ' + r
+        return r
+
     def _richcmp_(self, other, op):
         """
         Compare the differential and the other differential with respect to the
