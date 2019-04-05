@@ -50,6 +50,7 @@ EXAMPLES::
     -1*Place (x, x*y)
      + Place (x^2 + 1, x*y)
 
+    sage: QQbar.options.display_format = 'radical'
     sage: R.<x> = FunctionField(QQbar, implementation='kash')
     sage: L.<y> = R[]
     sage: F.<y> = R.extension(y^2 - (x^2+1))
@@ -297,6 +298,8 @@ class RationalFunctionField_kash(RationalFunctionField):
                 for r,m in g.element().numerator().change_ring(QQbar).roots():
                     algebraics.append(r)
 
+        algebraics.append(QQbar(2).sqrt())
+        algebraics.append(QQbar(-1).sqrt())
         (constant_field, new_algebraics, nftoQQbar) = number_field_elements_from_algebraics(algebraics)
 
         # If we decided to expand our number field, then redo the divisor
