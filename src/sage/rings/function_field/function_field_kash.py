@@ -1879,7 +1879,13 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: I.gens()
             (y + x,)
         """
-        return self._gens
+        gens = self._gens
+        try:
+            if len(repr(gens[1]-gens[0])) < len(repr(gens[1])):
+                gens = (gens[0], gens[1]-gens[0])
+        except:
+            pass
+        return gens
 
     def gens_over_base(self):
         """
