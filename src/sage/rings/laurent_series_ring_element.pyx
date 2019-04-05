@@ -343,7 +343,7 @@ cdef class LaurentSeries(AlgebraElement):
             s += " + %s"%bigoh
         return s[1:]
 
-    def _latex_(self):
+    def _latex_(self, table=False):
         r"""
         EXAMPLES::
 
@@ -378,9 +378,14 @@ cdef class LaurentSeries(AlgebraElement):
             x = v[n]
             e = n + valuation
             x = sage.misc.latex.latex(x)
+            if x == '0' and (not first) and table:
+                s += " && "
             if x != '0':
                 if not first:
-                    s += " + "
+                    if not table:
+                        s += " + "
+                    else:
+                        s += " &\\,\\,+& "
                 if not atomic_repr and e > 0 and (x[1:].find("+") != -1 or x[1:].find("-") != -1):
                     x = "\\left(%s\\right)"%x
                 if e == 1:
@@ -411,7 +416,10 @@ cdef class LaurentSeries(AlgebraElement):
                 bigoh = "O(%s^{%s})"%(X,pr)
             if s == " ":
                 return bigoh
-            s += " + %s"%bigoh
+            if not table:
+                s += " + %s"%bigoh
+            else:
+                s += ' &&'*(pr - (valuation + m)) + " &\\,\\,+& \\,%s"%bigoh
         return s[1:]
 
     def __hash__(self):
