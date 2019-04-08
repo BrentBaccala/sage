@@ -976,7 +976,7 @@ class LaurentSeriesDifferential(LaurentSeries):
         if kwds.pop('table', None):
             latex_series_no_alignment = super(LaurentSeriesDifferential, self)._latex_(**kwds)
         else:
-            latex_series_no_alignment = latex_series_no_alignment
+            latex_series_no_alignment = latex_series
         if latex_series == latex_series_no_alignment:
             return "\\left[" + latex_series + "\\right]\\," + differential
         else:
