@@ -57,8 +57,8 @@ EXAMPLES::
     sage: D = (x/y).divisor()
     sage: D
     -1*Place (x - I, y)
-     + Place (x, y + x - 1)
-     + Place (x, y + x + 1)
+     + Place (x, y - 1)
+     + Place (x, y + 1)
      - Place (x + I, y)
     sage: D2 = (x/y*x.differential()).divisor()
     sage: pl1 = D.support()[0]
@@ -157,8 +157,8 @@ class RationalFunctionField_kash(RationalFunctionField):
         sage: L.<y> = R[]
         sage: F.<y> = R.extension(y^2 - (x^2+1))
         sage: (y/x).divisor()
-        -1*Place (x, y + x - 1)
-         - Place (x, y + x + 1)
+        -1*Place (x, y - 1)
+         - Place (x, y + 1)
          + Place (x^2 + 1, y)
 
         sage: A.<z> = QQ[]
@@ -168,15 +168,15 @@ class RationalFunctionField_kash(RationalFunctionField):
         sage: F.<y> = R.extension(y^2 - (x^2+1))
 
         sage: (x/y*x.differential()).divisor()
-        -2*Place (1/x, 1/x*y + (-x + 1)/x)
-         - 2*Place (1/x, 1/x*y + (x + 1)/x)
-         + Place (x, y + x - 1)
-         + Place (x, y + x + 1)
+        -2*Place (1/x, 1/x*y - 1)
+         - 2*Place (1/x, 1/x*y + 1)
+         + Place (x, y - 1)
+         + Place (x, y + 1)
 
         sage: (x/y).divisor()
         -1*Place (x - i, y)
-         + Place (x, y + x - 1)
-         + Place (x, y + x + 1)
+         + Place (x, y - 1)
+         + Place (x, y + 1)
          - Place (x + i, y)
 
     We try the same calculation over QQbar::
@@ -186,8 +186,8 @@ class RationalFunctionField_kash(RationalFunctionField):
         sage: F.<y> = R.extension(y^2 - (x^2+1))
         sage: (y/x).divisor()
         Place (x - I, y)
-         - Place (x, y + x - 1)
-         - Place (x, y + x + 1)
+         - Place (x, y - 1)
+         - Place (x, y + 1)
          + Place (x + I, y)
 
     """
@@ -1014,7 +1014,7 @@ class FunctionFieldCompletion_kash(FunctionFieldCompletion):
 
         sage: p2 = D.support()[1]
         sage: p2
-        Place (x, y + x - 1)
+        Place (x, y - 1)
         sage: m2 = F.completion(p2, 't', prec=10)
         sage: m2(x)
         t + 1/4*t^3 + 1/16*t^5 + 1/64*t^7 + 1/256*t^9 + O(t^10)
@@ -1210,8 +1210,8 @@ class FunctionFieldCompletion_kash(FunctionFieldCompletion):
             sage: D = (x/y).divisor()
             sage: D
             -1*Place (x - I, y)
-             + Place (x, y + x - 1)
-             + Place (x, y + x + 1)
+             + Place (x, y - 1)
+             + Place (x, y + 1)
              - Place (x + I, y)
             sage: pl = D.support()[0]
             sage: m = F.completion(pl)
