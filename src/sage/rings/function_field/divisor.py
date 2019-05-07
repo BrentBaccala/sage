@@ -50,6 +50,7 @@ from __future__ import absolute_import
 import random
 
 from sage.misc.cachefunc import cached_method
+from sage.misc.latex import latex
 
 from sage.arith.all import lcm
 
@@ -155,6 +156,55 @@ class FunctionFieldDivisor(ModuleElement):
         ModuleElement.__init__(self, parent)
         self._data = data
 
+    def _format(self, formatter, mul, cr):
+        """
+        Return a string representation of the divisor, used by both
+        `_repr_` and `_latex_`.
+
+        INPUT:
+
+        - ``formatter`` -- either `repr` or `latex`
+
+        - ``mul`` -- the string inserted between multiplicity and place
+
+        - ``cr`` -- the string inserted between places
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ)
+            sage: x.divisor()                # indirect doctest
+            - Place (1/x) + Place (x)
+            sage: latex(x.divisor())         # indirect doctest
+            - (\frac{1}{x})\mathcal{O}_\infty + (x)\mathcal{O}
+        """
+        plus = ' + '
+        minus = ' - '
+
+        places = sorted(self._data)
+
+        if len(places) == 0:
+            return '0'
+
+        p = places.pop(0)
+        m = self._data[p]
+        if m == 1:
+            r = formatter(p)
+        elif m == -1:
+            r = '- ' + formatter(p) # seems more readable than `-`
+        else: # nonzero
+            r = formatter(m) + mul + formatter(p)
+        for p in places:
+            m = self._data[p]
+            if m == 1:
+                r += cr + plus + formatter(p)
+            elif m == -1:
+                r += cr + minus + formatter(p)
+            elif m > 0:
+                r += cr + plus + formatter(m) + mul + formatter(p)
+            elif m < 0:
+                r += cr + minus + formatter(-m) + mul + formatter(p)
+        return r
+
     def _repr_(self, split=True):
         """
         Return a string representation of the divisor.
@@ -173,39 +223,34 @@ class FunctionFieldDivisor(ModuleElement):
             'Place (1/x, 1/x^4*y^2 + 1/x^2*y + 1) + Place (1/x, 1/x^2*y + 1)
             + 3*Place (x, (1/(x^3 + x^2 + x))*y^2) - 6*Place (x + 1, y + 1)'
         """
-        mul = '*'
-        plus = ' + '
-        minus = ' - '
-
         if split:
             cr = '\n'
         else:
             cr = ''
 
-        places = sorted(self._data)
+        return self._format(repr, '*', cr)
 
-        if len(places) == 0:
-            return '0'
+    def _latex_(self):
+        """
+        Return the LaTeX representation of the divisor.
 
-        p = places.pop(0)
-        m = self._data[p]
-        if m == 1:
-            r = repr(p)
-        elif m == -1:
-            r = '- ' + repr(p) # seems more readable than `-`
-        else: # nonzero
-            r = repr(m) + mul + repr(p)
-        for p in places:
-            m = self._data[p]
-            if m == 1:
-                r += cr + plus + repr(p)
-            elif m == -1:
-                r += cr + minus + repr(p)
-            elif m > 0:
-                r += cr + plus + repr(m) + mul + repr(p)
-            elif m < 0:
-                r += cr + minus + repr(-m) + mul + repr(p)
-        return r
+        We use an additive notation combined with [Stich2009]_'s notation
+        for the ideal: the generators followed by a symbol for the ring,
+        either O or Oinf.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(GF(2)); R.<t> = PolynomialRing(K)
+            sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)
+            sage: f = x/(y+1)
+            sage: d = f.divisor()
+            sage: d._latex_()
+            (\frac{1}{x}, \frac{1}{x^{4}} y^{2} + \frac{1}{x^{2}} y + 1)\mathcal{O}_\infty
+             + (\frac{1}{x}, \frac{1}{x^{2}} y + 1)\mathcal{O}_\infty
+             + 3 (x, \left(\frac{1}{x^{3} + x^{2} + x}\right) y^{2})\mathcal{O}
+             - 6 (x + 1, y + 1)\mathcal{O}
+        """
+        return self._format(latex, '', '')
 
     def _richcmp_(self, other, op):
         """
