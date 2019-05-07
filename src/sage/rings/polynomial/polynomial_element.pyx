@@ -1623,15 +1623,18 @@ cdef class Polynomial(CommutativeAlgebraElement):
 
             sage: R.<x> = ZZ[]
             sage: f = x - 902384
-            sage: long(f)
+            sage: long(f) # py2
             Traceback (most recent call last):
             ...
             TypeError: cannot coerce nonconstant polynomial to long
-            sage: long(R(939392920202))
+            sage: long(R(939392920202)) # py2
+            doctest:...: DeprecationWarning: converting polynomials to longs is deprecated, since long() will no longer be supported in Python 3
+            See https://trac.sagemath.org/27675 for details.
             939392920202L
         """
         if self.degree() > 0:
             raise TypeError("cannot coerce nonconstant polynomial to long")
+        deprecation(27675, "converting polynomials to longs is deprecated, since long() will no longer be supported in Python 3")
         return long(self.get_coeff_c(0))
 
     cpdef _mul_(self, right):
@@ -2514,11 +2517,12 @@ cdef class Polynomial(CommutativeAlgebraElement):
         TESTS:
 
         We verify that :trac:`23020` has been resolved. (There are no elements
-        in the Sage library yet that do not implement ``__nonzero__``, so we
-        have to create one artificially.)::
+        in the Sage library yet that do not implement ``__nonzero__``
+        and ``__bool__``, so we have to create one artificially.)::
 
             sage: class PatchedAlgebraicNumber(sage.rings.qqbar.AlgebraicNumber):
             ....:     def __nonzero__(self): raise NotImplementedError()
+            ....:     def __bool__(self): raise NotImplementedError()
             sage: R.<x> = QQbar[]
             sage: R([PatchedAlgebraicNumber(0), 1])
             x + 0
@@ -7129,7 +7133,7 @@ cdef class Polynomial(CommutativeAlgebraElement):
             sage: f.roots(SR, multiplicities=False)
             [-I*sqrt(2), I*sqrt(2)]
 
-        The roots of some polynomials can't be described using radical
+        The roots of some polynomials cannot be described using radical
         expressions::
 
             sage: (x^5 - x + 1).roots(SR)
@@ -7137,7 +7141,7 @@ cdef class Polynomial(CommutativeAlgebraElement):
 
         For some other polynomials, no roots can be found at the moment
         due to the way roots are computed. :trac:`17516` addresses
-        these defecits. Until that gets implemented, one such example
+        these defects. Until that gets implemented, one such example
         is the following::
 
             sage: f = x^6-300*x^5+30361*x^4-1061610*x^3+1141893*x^2-915320*x+101724

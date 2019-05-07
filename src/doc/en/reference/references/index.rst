@@ -225,6 +225,10 @@ REFERENCES:
              by F. Morain.
              http://citeseer.ist.psu.edu/atkin92probabilistic.html
 
+.. [Ath1996] \C. A. Athanasiadis,
+            *Characteristic polynomials of subspace arrangements and finite fields*.
+            Advances in Mathematics, 122(2):193-233, 1996.
+
 .. [Av2000] \D. Avis, *A revised implementation of the reverse search
             vertex enumeration algorithm.* Polytopes-combinatorics and
             computation. Birkhauser Basel, 2000.
@@ -1456,6 +1460,9 @@ REFERENCES:
 .. [Eri1995] \H. Erikson.  Computational and Combinatorial Aspects
              of Coxeter Groups.  Thesis, 1995.
 
+.. [ER1959] Paul Erd\H{o}s and Alfr\'ed R\'enyi. "On Random Graphs",
+            Publicationes Mathematicae. 6: 290–297, 1959.
+
 .. [ERH2015] Jorge Espanoza and Steen Ryom-Hansen. *Cell structures
              for the Yokonuma-Hecke algebra and the algebra of braids
              and ties*. (2015) :arxiv:`1506.00715`.
@@ -1694,6 +1701,9 @@ REFERENCES:
 .. [GHJV1994] \E. Gamma, R. Helm, R. Johnson, J. Vlissides, *Design
               Patterns: Elements of Reusable Object-Oriented
               Software*. Addison-Wesley (1994). ISBN 0-201-63361-2.
+
+.. [Gil1959] Edgar Nelson Gilbert. "Random Graphs", Annals of Mathematical
+             Statistics. 30 (4): 1141–1144, 1959.
 
 .. [Gir2012] Samuele Giraudo,
              *Algebraic and combinatorial structures on pairs of twin binary trees*,
@@ -2434,6 +2444,12 @@ REFERENCES:
             Journal of Combinatorics, **8**
             (2001). http://www.combinatorics.org/Volume_8/Abstracts/v8i2r11.html
 
+.. [KR2001b] \P.L. Krapivsky and S. Redner. "Organization of Growing Random
+             Networks", Phys. Rev. E vol. 63 (2001), p. 066123.
+
+.. [KR2005] \P.L. Krapivsky and S. Redner. "Network Growth by Copying",
+             Phys. Rev. E vol. 71 (2005), p. 036118.
+
 .. [Kre2002] \V. Kreps. *Social Network Analysis* (2002).
              [Online] Available: http://www.orgnet.com/sna.html
 
@@ -2738,6 +2754,10 @@ REFERENCES:
 .. [DeLuca2006] \A. De Luca, *Pseudopalindrome closure operators in free
               monoids*, Theoret. Comput. Sci. 362 (2006) 282--300.
 
+.. [LT2018] Zhiqiang Li, Shaobin Tan.
+            *Verma modules for rank two Heisenberg-Virasoro algebra*.
+            Preprint, (2018). :arxiv:`1807.07735`.
+
 .. [Lut2002] Frank H. Lutz, Császár's Torus, Electronic Geometry Model
              No. 2001.02.069
              (2002). http://www.eg-models.de/models/Classical_Models/2001.02.069/_direct_link.html
@@ -2877,6 +2897,9 @@ REFERENCES:
 
 .. [McE1987] Robert J. McEliece. Finite Fields for Computer
              Scientists and Engineers. Kluwer Academic Publishers, 1987.
+
+.. [McK1998] Brendan D. McKay, "Isomorph-Free Exhaustive generation".
+             Journal of Algorithms, 26(2): 306-324, February 1998.
 
 .. [McM1992] John McMillan. *Games, strategies, and managers*. Oxford
              University Press.
@@ -3116,6 +3139,11 @@ REFERENCES:
 .. [OS2018] Se-jin Oh and Travis Scrimshaw. *Categorical relations between
             Langlands dual quantum affine algebras: Exceptional cases*.
             Preprint: :arxiv:`1802.09253` (2018).
+
+.. [OSS2009] Vitaly Osipov, Peter Sanders, Johannes Singler:
+             *The Filter-Kruskal Minimum Spanning Tree Algorithm*.
+             SIAM ALENEX, 2009: 52-61
+             :doi:`10.1137/1.9781611972894.5`
 
 .. [Oxl1992] James Oxley, *Matroid theory*, Oxford University
              Press, 1992.
