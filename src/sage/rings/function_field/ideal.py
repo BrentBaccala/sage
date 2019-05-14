@@ -218,9 +218,6 @@ class FunctionFieldIdeal(Element):
         """
         Return the LaTeX representation of the ideal.
 
-        We use [Stich2009]_'s notation for the ideal: the generators
-        followed by a symbol for the ring, either O or Oinf.
-
         EXAMPLES::
 
             sage: K.<x> = FunctionField(GF(2)); _.<Y> = K[]
@@ -228,18 +225,9 @@ class FunctionFieldIdeal(Element):
             sage: O = L.maximal_order()
             sage: I = O.ideal(y)
             sage: latex(I)
-            (y)\mathcal{O}
+            \left(y\right)
         """
-        gens_str = ', '.join(g._latex_() for g in self.gens_reduced())
-
-        # maybe we should have a better way to test this... like an
-        # order method called 'is_infinite'?
-
-        from .order import FunctionFieldOrderInfinite
-        if isinstance(self.ring(), FunctionFieldOrderInfinite):
-            return "({})\\mathcal{{O}}_\infty".format(gens_str)
-        else:
-            return "({})\\mathcal{{O}}".format(gens_str)
+        return '\\left(' + ', '.join(g._latex_() for g in self.gens_reduced()) + '\\right)'
 
     def _div_(self, other):
         """
