@@ -216,7 +216,7 @@ class FunctionFieldIdeal(Element):
         return "Ideal %s of %s" % (self._repr_short(), self.ring())
 
     def _latex_(self):
-        """
+        r"""
         Return the LaTeX representation of the ideal.
 
         EXAMPLES::
