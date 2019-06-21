@@ -94,6 +94,7 @@ from sage.interfaces.kash import kash, KashElement
 from sage.structure.richcmp import richcmp
 from sage.structure.factorization import Factorization
 
+from sage.rings.integer import Integer
 from sage.rings.rational_field import QQ
 from sage.rings.fraction_field import FractionField
 from sage.rings.finite_rings.finite_field_base import FiniteField
@@ -1695,6 +1696,15 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
         - ``ring`` -- maximal order
 
         - ``gens``-- a list of generators, or a kash ideal
+
+        TESTS::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<t> = K[] # optional - kash
+            sage: L.<y> = K.extension(t^3 - x^2*(x^2 + x + 1)^2) # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(); I                            # optional - kash
+            Ideal (1) of Maximal order
+            of Function field in y defined by y^3 - x^6 - 2*x^5 - 3*x^4 - 2*x^3 - x^2
         """
 
         FunctionFieldIdeal.__init__(self, ring)
@@ -1703,8 +1713,19 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             self._kash_ = gens
             self._gens = tuple(gens.Generators().sage(ring._field.reverse_map))
         else:
+            if len(gens) == 1:
+                gens = gens[0]
+                if not isinstance(gens, (list, tuple)):
+                    if isinstance(gens, FunctionFieldIdeal):
+                        gens = gens.gens()
+                    else:
+                        gens = [gens]
             if ring.function_field().constant_base_field() is QQbar:
-                ring.function_field().base_field()._extend_constant_field(gens)
+                if len(gens) > 0:
+                    ring.function_field().base_field()._extend_constant_field(gens)
+            # Kash can't handle an empty list of generators
+            if len(gens) == 0:
+                gens = [Integer(1)]
             self._gens = tuple(flatten(gens))
             self._kash_ = ring.kash().Ideal(map(ring._field.to_kash, self._gens))
 
