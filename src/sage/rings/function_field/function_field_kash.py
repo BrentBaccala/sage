@@ -1721,12 +1721,6 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
 
         return richcmp((self.denominator(), self.gens_over_base()), (other.denominator(), other.gens_over_base()), op)
 
-    def __repr__(self):
-        """
-        Return a string representation of the ideal.
-        """
-        return "Ideal (%s) of %s"%(', '.join([repr(g) for g in self.gens()]), self.ring())
-
     def __contains__(self, x):
         """
         Return ``True`` if ``x`` is in the ideal.
