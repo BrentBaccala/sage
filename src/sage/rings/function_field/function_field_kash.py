@@ -1934,7 +1934,7 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
         """
         factors = []
         for f,m in self.kash().Factorization():
-            factors.append( (FunctionFieldIdeal_kash(self._ring, f), m) )
+            factors.append( (FunctionFieldIdeal_kash(self._ring, f), m.sage()) )
         return factors
 
     def gens(self):
