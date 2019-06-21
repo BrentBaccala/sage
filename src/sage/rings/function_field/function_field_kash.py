@@ -568,7 +568,45 @@ class FunctionFieldDifferential_kash(FunctionFieldDifferential_global):
         return D
 
     def residue(self, place):
-        return self._field.completion(place, prec=0)(self)[-1]
+        """
+        Return the residue of the differential at the place.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y>=K[] # optional - kash
+            sage: L.<y> = K.extension(Y^3+x+x^3*Y)            # optional - kash
+            sage: w = (1/y) * y.differential()                # optional - kash
+            sage: w.divisor_of_poles()                        # optional - kash
+            Place (1/x, -1/x^3*y^2 + 1/x)
+             + Place (1/x, 1/x^3*y^2 + 1/x^2*y + 1)
+             + Place (x, y)
+
+            sage: R.<x> = FunctionField(QQ, implementation='kash') # optional - kash
+            sage: L.<y> = R[]                                 # optional - kash
+            sage: root = x^4+4*x^3+2*x^2+1                    # optional - kash
+            sage: F.<y> = R.extension(y^2 - root)             # optional - kash
+            sage: num = 6*x^2 + 5*x +7                        # optional - kash
+            sage: den = 2*x^6 + 8*x^5 + 3*x^4 + - 4*x^3 - 1   # optional - kash
+            sage: integrand = y*num/den * x.differential();   # optional - kash
+            sage: D = integrand.divisor_of_poles()            # optional - kash
+            sage: integrand.residue(D.support()[0])           # optional - kash
+            Traceback (most recent call last):
+            ...
+            NotImplementedError: series expansions not implemented at places of degree > 1
+
+            sage: QQbar.options.display_format = 'radical'    # optional - kash
+            sage: R.<x> = FunctionField(QQbar, implementation='kash') # optional - kash
+            sage: L.<y> = R[]                                 # optional - kash
+            sage: root = x^4+4*x^3+2*x^2+1                    # optional - kash
+            sage: F.<y> = R.extension(y^2 - root)             # optional - kash
+            sage: num = 6*x^2 + 5*x +7                        # optional - kash
+            sage: den = 2*x^6 + 8*x^5 + 3*x^4 + - 4*x^3 - 1   # optional - kash
+            sage: integrand = y*num/den * x.differential();   # optional - kash
+            sage: D = integrand.divisor_of_poles()            # optional - kash
+            sage: integrand.residue(D.support()[0])           # optional - kash
+            5/2
+        """
+        return self.base_ring().completion(place, prec=0)(self)[-1]
 
 class DifferentialsSpace_kash(DifferentialsSpace):
     """
