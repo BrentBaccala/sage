@@ -558,13 +558,14 @@ class FunctionFieldDifferential_kash(FunctionFieldDifferential_global):
         """
         from .divisor import FunctionFieldDivisor
         F = self.base_ring()
+        divisor_group = F.divisor_group()
         x = F.base_field().gen()
         D = self._f._divisor() + (-2) * F(x)._divisor_of_poles() + F.different()
-        D = FunctionFieldDivisor(D.parent().function_field(), {p:-m for p,m in D.list() if m < 0})
+        D = divisor_group.element_class(divisor_group, {p:-m for p,m in D.list() if m < 0})
         if F.constant_base_field() is QQbar:
             F.base_field()._extend_constant_field(D)
             D = self._f._divisor() + (-2) * F(x)._divisor_of_poles() + F.different()
-            D = FunctionFieldDivisor(D.parent().function_field(), {p:-m for p,m in D.list() if m < 0})
+            D = divisor_group.element_class(divisor_group, {p:-m for p,m in D.list() if m < 0})
         return D
 
     def residue(self, place):
