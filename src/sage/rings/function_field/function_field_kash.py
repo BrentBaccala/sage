@@ -1516,7 +1516,7 @@ class FunctionFieldMaximalOrder_kash(FunctionFieldMaximalOrder):
             sage: S.ideal(1/y)                                # optional - kash
             Ideal (1, (-1/(x^3 + 1))*y) of Order in Function field in y defined by y^2 - x^3 - 1
             sage: I2 = S.ideal(x^2-4); I2                     # optional - kash
-            Ideal (x^2 - 4, (x^2 - 4)*y) of Order in Function field in y defined by y^2 - x^3 - 1
+            Ideal (x^2 - 4) of Order in Function field in y defined by y^2 - x^3 - 1
             sage: I2 == S.ideal(I)                            # optional - kash
             True
 
@@ -1528,7 +1528,7 @@ class FunctionFieldMaximalOrder_kash(FunctionFieldMaximalOrder):
             sage: S.ideal(1/y)                                # optional - kash
             Ideal (1, (6/(x^3 + 1))*y) of Order in Function field in y defined by y^2 + 6*x^3 + 6
             sage: I2 = S.ideal(x^2-4); I2                     # optional - kash
-            Ideal (x^2 + 3, (x^2 + 3)*y) of Order in Function field in y defined by y^2 + 6*x^3 + 6
+            Ideal (x^2 + 3) of Order in Function field in y defined by y^2 + 6*x^3 + 6
             sage: I2 == S.ideal(I)                            # optional - kash
             True
         """
@@ -1641,14 +1641,14 @@ class FunctionFieldMaximalOrderInfinite_kash(FunctionFieldMaximalOrderInfinite):
             sage: F.<y> = K.extension(t^3 - x^2*(x^2 + x + 1)^2) # optional - kash
             sage: Oinf = F.maximal_order_infinite()           # optional - kash
             sage: I = Oinf.ideal(x,y); I                      # optional - kash
-            Ideal (x, y) of Maximal infinite order of Function field
+            Ideal (y) of Maximal infinite order of Function field
             in y defined by y^3 - x^6 - 2*x^5 - 3*x^4 - 2*x^3 - x^2
 
             sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y> = K[] # optional - kash
             sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
             sage: Oinf = L.maximal_order_infinite()           # optional - kash
             sage: I = Oinf.ideal(x,y); I                      # optional - kash
-            Ideal (x, y) of Maximal infinite order of Function field
+            Ideal (x) of Maximal infinite order of Function field
             in y defined by y^2 + y + (x^2 + 1)/x
         """
 
@@ -1665,16 +1665,16 @@ class FunctionFieldMaximalOrderInfinite_kash(FunctionFieldMaximalOrderInfinite):
             sage: F.<y> = K.extension(t^3 - x^2*(x^2 + x + 1)^2) # optional - kash
             sage: Oinf = F.maximal_order_infinite()           # optional - kash
             sage: Oinf.decomposition()                        # optional - kash
-            [(Ideal (1/x, 1/x^2*y - 1) of Maximal infinite order
+            [(Ideal (1/x^2*y - 1) of Maximal infinite order
              of Function field in y defined by y^3 - x^6 - 2*x^5 - 3*x^4 - 2*x^3 - x^2, 1, 1),
-             (Ideal (1/x, 1/x^4*y^2 + 1/x^2*y + 1) of Maximal infinite order
+             (Ideal (1/x^4*y^2 + 1/x^2*y + 1) of Maximal infinite order
              of Function field in y defined by y^3 - x^6 - 2*x^5 - 3*x^4 - 2*x^3 - x^2, 2, 1)]
 
             sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y> = K[] # optional - kash
             sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
             sage: Oinf = L.maximal_order_infinite()           # optional - kash
             sage: Oinf.decomposition()                        # optional - kash
-            [(Ideal (1/x, 1/x*y) of Maximal infinite order of Function field in y
+            [(Ideal (1/x*y) of Maximal infinite order of Function field in y
             defined by y^2 + y + (x^2 + 1)/x, 1, 2)]
         """
 
@@ -1805,9 +1805,9 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: O = L.maximal_order()                       # optional - kash
             sage: I = O.ideal(y)                              # optional - kash
             sage: ~I                                          # optional - kash
-            Ideal (1, (1/(x^3 + 1))*y) of Maximal order of Function field in y defined by y^2 - x^3 - 1
+            Ideal ((1/(x^3 + 1))*y) of Maximal order of Function field in y defined by y^2 - x^3 - 1
             sage: I^(-1)                                      # optional - kash
-            Ideal (1, (1/(x^3 + 1))*y) of Maximal order of Function field in y defined by y^2 - x^3 - 1
+            Ideal ((1/(x^3 + 1))*y) of Maximal order of Function field in y defined by y^2 - x^3 - 1
             sage: ~I * I                                      # optional - kash
             Ideal (1) of Maximal order of Function field in y defined by y^2 - x^3 - 1
 
@@ -1816,10 +1816,10 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: O = L.maximal_order()                       # optional - kash
             sage: I = O.ideal(y)                              # optional - kash
             sage: ~I                                          # optional - kash
-            Ideal (x, (x/(x^2 + 1))*y + x/(x^2 + 1)) of Maximal order
+            Ideal ((x/(x^2 + 1))*y + x/(x^2 + 1)) of Maximal order
             of Function field in y defined by y^2 + y + (x^2 + 1)/x
             sage: I^(-1)                                      # optional - kash
-            Ideal (x, (x/(x^2 + 1))*y + x/(x^2 + 1)) of Maximal order
+            Ideal ((x/(x^2 + 1))*y + x/(x^2 + 1)) of Maximal order
             of Function field in y defined by y^2 + y + (x^2 + 1)/x
             sage: ~I * I                                      # optional - kash
             Ideal (1) of Maximal order of Function field in y defined by y^2 + y + (x^2 + 1)/x
@@ -1839,7 +1839,7 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: I = O.ideal(y)                              # optional - kash
             sage: J = O.ideal(x+y)                            # optional - kash
             sage: I + J                                       # optional - kash
-            Ideal (x, y) of Maximal order of Function field in y defined by y^2 - x^3*y - x
+            Ideal (y) of Maximal order of Function field in y defined by y^2 - x^3*y - x
 
             sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
             sage: O = L.maximal_order()                       # optional - kash
