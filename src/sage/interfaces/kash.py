@@ -758,9 +758,21 @@ class KashElement(ExpectElement):
 
     __nonzero__ = __bool__
 
+    def sage_matrix(self, locals={}):
+        """
+        Convert a matrix object to Sage.
+        """
+        from sage.matrix.constructor import matrix
+        rows = self.Size()
+        cols = self.Transpose().Size()
+        M = matrix([[self[r+1][c+1].sage(locals) for c in range(cols)] for r in range(rows)])
+        return M
+
     def _sage_(self, locals={}, *args):
         """
         Convert this object to Sage.
+
+        Don't work on matrices (use `sage_matrix` instead).
 
         A translation dictionary `locals` can be provided to map Kash
         names and objects to Sage objects.
