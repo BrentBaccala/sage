@@ -88,6 +88,9 @@ import operator
 from sage.misc.cachefunc import cached_method
 from sage.misc.flatten import flatten
 from sage.misc.latex import latex
+from sage.misc.all import denominator
+
+from sage.arith.all import lcm
 
 from sage.interfaces.kash import kash, KashElement
 
@@ -1405,6 +1408,7 @@ class FunctionFieldMaximalOrder_kash(FunctionFieldMaximalOrder):
         """
 
         FunctionFieldMaximalOrder.__init__(self, field, category)
+        self._populate_coercion_lists_(coerce_list=[field._ring])
         self.kash_constant_field = None
 
     def kash(self):
@@ -2037,6 +2041,131 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
         """
         return tuple(self.kash().Basis().sage(self._ring._field.reverse_map))
 
+    @cached_method
+    def _hnf_denominator(self):
+        """
+        Helper function that obtains a basis matrix from Kash and converts
+        it to Hermite normal form, with a denominator.
+        """
+        M = self.kash().BasisMatrix().sage_matrix(self._ring._field.reverse_map)
+        d = lcm(map(denominator, M.coefficients()))
+        M = (d * M).change_ring(d.parent()).echelon_form()
+        return (M, d)
+
+    def hnf(self):
+        """
+        Return the matrix in hermite normal form representing this ideal.
+
+        See also :meth:`denominator`
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); R.<y> = K[] # optional - kash
+            sage: L.<y> = K.extension(y^2 - x^3 - 1)          # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(y*(y+1)); I.hnf()               # optional - kash
+            [x^3 + 1      1]
+            [      0    x^3]
+        """
+        return self.basis_matrix() / self.denominator()
+
+    def basis_matrix(self):
+        """
+        Return the matrix of basis vectors of this ideal as a module.
+
+        The basis matrix is by definition the hermite normal form of the ideal
+        divided by the denominator.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); R.<t> = K[] # optional - kash
+            sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)    # optional - kash
+            sage: O = F.maximal_order()                       # optional - kash
+            sage: I = O.ideal(x,1/y)                          # optional - kash
+            sage: I.denominator() * I.basis_matrix() == I.hnf()
+            True
+        """
+        return self._hnf_denominator()[0]
+
+    def denominator(self):
+        """
+        Return the denominator of this fractional ideal.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); R.<y> = K[] # optional - kash
+            sage: L.<y> = K.extension(y^2 - x^3 - 1)          # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(y/(y+1))                        # optional - kash
+            sage: d = I.denominator(); d                      # optional - kash
+            x^3
+            sage: d in O                                      # optional - kash
+            True
+        """
+        return self._hnf_denominator()[1]
+
+    def is_integral(self):
+        """
+        Return ``True`` if this is an integral ideal.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<t> = PolynomialRing(K) # optional - kash
+            sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)    # optional - kash
+            sage: O = F.maximal_order()                       # optional - kash
+            sage: I = O.ideal(x,1/y)                          # optional - kash
+            sage: I.is_integral()                             # optional - kash
+            False
+            sage: J = I.denominator() * I                     # optional - kash
+            sage: J.is_integral()                             # optional - kash
+            True
+        """
+        return bool(self.kash().IsIntegral())
+
+    def ideal_below(self):
+        """
+        Return the ideal below this ideal.
+
+        This is defined only for integral ideals.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<t> = K[] # optional - kash
+            sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)    # optional - kash
+            sage: O = F.maximal_order()                       # optional - kash
+            sage: I = O.ideal(x,1/y)                          # optional - kash
+            sage: I.ideal_below()                             # optional - kash
+            Traceback (most recent call last):
+            ...
+            TypeError: not an integral ideal
+            sage: J = I.denominator() * I                     # optional - kash
+            sage: J.ideal_below()                             # optional - kash
+            Ideal (x^3 + x^2 + x) of Maximal order of Rational function field
+            in x over Rational Field
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y> = K[]   # optional - kash
+            sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(x,1/y)                          # optional - kash
+            sage: I.ideal_below()                             # optional - kash
+            Traceback (most recent call last):
+            ...
+            TypeError: not an integral ideal
+            sage: J = I.denominator() * I                     # optional - kash
+            sage: J.ideal_below()                             # optional - kash
+            Ideal (x) of Maximal order of Rational function field
+            in x over Rational Field
+        """
+        if not self.is_integral():
+            raise TypeError("not an integral ideal")
+
+        K = self.ring().fraction_field().base_field().maximal_order()
+
+        # The generator of the ideal below is just the (0,0) entry of the HNF.
+        l = self.hnf()[0][0]
+
+        return K.ideal(l)
+
     def is_prime(self):
         """
         Return ``True`` if the ideal is a prime ideal.
@@ -2065,6 +2194,7 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             [True, True]
         """
 
+        # XXX don't work if base field is QQbar, since kash is working over a number field
         return bool(self.kash().IsPrime())
 
     def place(self):
