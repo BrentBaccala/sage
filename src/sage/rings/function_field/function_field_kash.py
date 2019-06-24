@@ -2142,6 +2142,9 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: J.ideal_below()                             # optional - kash
             Ideal (x^3 + x^2 + x) of Maximal order of Rational function field
             in x over Rational Field
+            sage: O.ideal(y-1).ideal_below()                  # optional - kash
+            Ideal ((x^6 + 2*x^5 + 3*x^4 + 2*x^3 + x^2 - 1)/(x^3 + x^2 + x))
+            of Maximal order of Rational function field in x over Rational Field
 
             sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y> = K[]   # optional - kash
             sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
@@ -2153,7 +2156,7 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             TypeError: not an integral ideal
             sage: J = I.denominator() * I                     # optional - kash
             sage: J.ideal_below()                             # optional - kash
-            Ideal (x) of Maximal order of Rational function field
+            Ideal (x^3 + x) of Maximal order of Rational function field
             in x over Rational Field
         """
         if not self.is_integral():
@@ -2161,8 +2164,19 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
 
         K = self.ring().fraction_field().base_field().maximal_order()
 
-        # The generator of the ideal below is just the (0,0) entry of the HNF.
-        l = self.hnf()[0][0]
+        # If hnf() is REVERSED Hermite normal form, then the generator
+        # of the ideal below is just the (0,0) entry of the HNF.
+
+        # l = self.hnf()[0][0]
+
+        # In normal hnf, klee says to compute like this (see ideal_below comments in ideal.py):
+
+        from sage.matrix.constructor import matrix
+
+        hnf = self.hnf()
+        m = matrix([hnf[0].parent().gen(0)] + list(hnf))
+        _,T = m.hermite_form(transformation=True)
+        l = T[-1][0]
 
         return K.ideal(l)
 
