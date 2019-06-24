@@ -333,12 +333,18 @@ class RationalFunctionField_kash(RationalFunctionField):
         from sage.rings.polynomial.polynomial_ring import PolynomialRing_general
 
         for I in ideals:
-            I = Ideal(map(numerator, I))
+            #I = Ideal(map(numerator, I))
+            gens = map(numerator, I)
+            I = Ideal(gens)
             if isinstance(I.ring(), PolynomialRing_general):
+                for g in gens:
+                    algebraics.extend(g.coefficients())
                 # univariate case - ideals over univariate rings don't
                 # implement dimension() or variety()
                 algebraics.extend(I.gen().roots(multiplicities=False))
             elif isinstance(I.ring(), MPolynomialRing_base):
+                for g in gens:
+                    algebraics.extend(g.coefficients())
                 if I.dimension() == 0:
                     for point in I.variety():
                         algebraics.extend(point.values())
