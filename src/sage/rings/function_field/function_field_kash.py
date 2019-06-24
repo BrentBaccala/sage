@@ -1540,6 +1540,31 @@ class FunctionFieldMaximalOrder_kash(FunctionFieldMaximalOrder):
 
         return FunctionFieldIdeal_kash(self, gens)
 
+    def coordinate_vector(self, e):
+        """
+        Return the coordinates of ``e`` with respect to the basis of the order.
+
+        INPUT:
+
+        - ``e`` -- element of the order or the function field
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); R.<y> = K[] # optional - kash
+            sage: L.<y> = K.extension(y^4 + x*y + 4*x + 1)    # optional - kash
+            sage: O = L.equation_order()                      # optional - kash
+            sage: f = (x + y)^3                               # optional - kash
+            sage: O.coordinate_vector(f)                      # optional - kash
+            (x^3, 3*x^2, 3*x, 1)
+        """
+
+        V, from_V, to_V = self.function_field().vector_space()
+
+        R = V.base_field().maximal_order()
+        module = V.span([to_V(b) for b in self.basis()], base_ring=R)
+
+        return module.coordinate_vector(to_V(e), check=False)
+
 class FunctionFieldMaximalOrderInfinite_kash(FunctionFieldMaximalOrderInfinite):
     """
     Base class of kash-implemented maximal infinite orders of function fields.
