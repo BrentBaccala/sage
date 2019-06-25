@@ -2214,6 +2214,114 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
 
         return K.ideal(l)
 
+    def factor(self):
+        """
+        Return the factorization of this ideal.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(GF(2)); _.<t> = K[]
+            sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)
+            sage: O = F.maximal_order()
+            sage: I = O.ideal(y)
+            sage: I == I.factor().prod()  # indirect doctest
+            True
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); _.<Y> = K[] # optional - kash
+            sage: L.<y> = K.extension(Y^2 - x)                # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(y)                              # optional - kash
+            sage: I.factor()                                  # optional - kash
+            Ideal (y) of Maximal order of Function field in y defined by y^2 - x
+            sage: I2 = O.ideal(x-1)                           # optional - kash
+            sage: I2.factor()                                 # optional - kash
+            (Ideal (-y + 1) of Maximal order of Function field in y defined by y^2 - x) *
+            (Ideal (y + 1) of Maximal order of Function field in y defined by y^2 - x)
+            sage: I2.factor().prod() == I2                    # optional - kash
+            True
+            sage: I3 = O.ideal(x-2)                           # optional - kash
+            sage: I3.factor()                                 # optional - kash
+            Ideal (x - 2) of Maximal order of Function field in y defined by y^2 - x
+            sage: I4 = O.ideal(x^3+x)                         # optional - kash
+            sage: I4.factor()                                 # optional - kash
+            (Ideal (y) of Maximal order of Function field in y defined by y^2 - x)^2 *
+            (Ideal (x^2 + 1) of Maximal order of Function field in y defined by y^2 - x)
+            sage: I4.factor().prod() == I4                    # optional - kash
+            True
+
+            sage: K.<x> = FunctionField(QQbar, implementation='kash'); _.<Y> = K[] # optional - kash
+            sage: L.<y> = K.extension(Y^2 - x)                # optional - kash
+            sage: O = L.maximal_order()                       # optional - kash
+            sage: I = O.ideal(y)                              # optional - kash
+            sage: I.factor()                                  # optional - kash
+            Ideal (y) of Maximal order of Function field in y defined by y^2 - x
+            sage: I2 = O.ideal(x-1)                           # optional - kash
+            sage: I2.factor()                                 # optional - kash
+            (Ideal (-y + 1) of Maximal order of Function field in y defined by y^2 - x) *
+            (Ideal (y + 1) of Maximal order of Function field in y defined by y^2 - x)
+            sage: I2.factor().prod() == I2                    # optional - kash
+            True
+            sage: I3 = O.ideal(x-2)                           # optional - kash
+            sage: I3.factor()                                 # optional - kash
+            (Ideal (-1/2*sqrt(2)*y + 1) of Maximal order of Function field in y defined by y^2 - x) *
+            (Ideal (1/2*sqrt(2)*y + 1) of Maximal order of Function field in y defined by y^2 - x)
+            sage: I3.factor().prod() == I3                    # optional - kash
+            True
+
+        """
+        O = self.ring()
+        F = O.fraction_field()
+        # Basically, we want o = F.base_field().maximal_order()
+        # but that doesn't work too well right now, so instead let's do something isomorphic
+        K = F.base_field()
+        o = PolynomialRing(K.constant_field(), K.gen())
+
+        # First we collect primes below self
+        d = self.denominator()
+        i = d * self
+
+        from sage.matrix.constructor import matrix
+        from sage.algebras.all import FiniteDimensionalAlgebra
+
+        factors = []
+        primes = set([p for p,_ in d.factor()] + [p.gen() for p,_ in i.ideal_below().factor()])
+
+        # These matrices show how to multiply by the basis elements,
+        # and when reduced modulo a prime (prime in o), will be used
+        # to form the algebra O mod p.
+
+        algebra_matrices = [matrix([O.coordinate_vector(b1*b2) for b1 in O.basis()]).change_ring(o) for b2 in O.basis()]
+
+        for prime in primes:
+
+            field = o.quo(prime)
+            A = FiniteDimensionalAlgebra(field, map(lambda M: M.mod(prime), algebra_matrices))
+
+            for q in A.maximal_ideals():
+                if q == A.ideal():
+                    # The zero ideal is the (only) maximal ideal, so A is
+                    # a field, and the ideal is prime w/out any factorization
+                    I = O.ideal(prime)
+                else:
+                    try:
+                        # I'd like qq = q.basis_matrix().change_ring(K.constant_field()),
+                        # but that produces exceptions like "TypeError: unable to convert 1 to a rational"
+                        qq = matrix([[e.lift() for e in r] for r in q.basis_matrix()])
+                        qq = qq.change_ring(K.constant_field())
+                    except TypeError:
+                        # A TypeError here indicates that we would need an algebraic
+                        # extension to express this ideal.  Q: what if several ideals
+                        # can be multiplied together to form an ideal that doesn't
+                        # need an extension?
+                        I = None
+                    else:
+                        I = O.ideal(*((prime,) + tuple((matrix(O.basis()) * qq.transpose())[0])))
+                if I:
+                    exp = I.valuation(self)
+                    if exp != 0:
+                        factors.append((I,exp))
+        return Factorization(factors, cr=True)
+
     def is_prime(self):
         """
         Return ``True`` if the ideal is a prime ideal.
