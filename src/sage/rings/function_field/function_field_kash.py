@@ -2072,6 +2072,9 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
         """
         return tuple(self.kash().Basis().sage(self._ring._field.reverse_map))
 
+    def gens_two(self):
+        return tuple(self.kash().Generators().sage(self._ring._field.reverse_map))
+
     @cached_method
     def _hnf_denominator(self):
         """
