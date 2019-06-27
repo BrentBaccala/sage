@@ -1593,6 +1593,7 @@ class FunctionFieldMaximalOrderInfinite_kash(FunctionFieldMaximalOrderInfinite):
         """
 
         FunctionFieldMaximalOrderInfinite.__init__(self, field, category)
+        self._populate_coercion_lists_(coerce_list=[field._ring])
         self.kash_constant_field = None
 
     def kash(self):
@@ -1689,6 +1690,33 @@ class FunctionFieldMaximalOrderInfinite_kash(FunctionFieldMaximalOrderInfinite):
         """
 
         return FunctionFieldIdeal_kash(self, gens)
+
+    def coordinate_vector(self, e):
+        """
+        Return the coordinates of ``e`` with respect to the basis of the order.
+
+        INPUT:
+
+        - ``e`` -- element of the order or the function field
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(QQ, implementation='kash'); R.<y> = K[] # optional - kash
+            sage: L.<y> = K.extension(y^4 + x*y + 4*x + 1)    # optional - kash
+            sage: O = L.equation_order()                      # optional - kash
+            sage: f = (x + y)^3                               # optional - kash
+            sage: O.coordinate_vector(f)                      # optional - kash
+            (x^3, 3*x^2, 3*x, 1)
+        """
+
+        V, from_V, to_V = self.function_field().vector_space()
+
+        R = V.base_field().maximal_order_infinite()
+        # Errors like "ValueError: Argument gens (= [(1, 0, 0), (0, 1/x^2, 0), (0, 0, 1/x^3)]) is not compatible with base_ring (= Maximal infinite order of Rational function field in x over Rational Field)." from test on line 590
+        #module = V.span([to_V(b) for b in self.basis()], base_ring=R)
+        module = V.span_of_basis([to_V(b) for b in self.basis()])
+
+        return module.coordinate_vector(to_V(e), check=False)
 
     def decomposition(self):
         """
