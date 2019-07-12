@@ -1665,25 +1665,10 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 I._ramification_index = 1
                 I._beta = [1] + [0]*(n-1)
             else:
-                try:
-                    # I'd like qq = q.basis_matrix().change_ring(K.constant_field()),
-                    # but that produces exceptions like "TypeError: unable to convert 1 to a rational"
-                    qq = matrix([[e.lift() for e in r] for r in q.basis_matrix()])
-                    qqq = qq.change_ring(K.constant_field())
-                except TypeError:
-                    # A TypeError here indicates that we would need an algebraic
-                    # extension to express this ideal.
-
-                    # XXX what if several ideals can be multiplied together
-                    # to form an ideal that doesn't need an extension?
-
-                    I = None
-                else:
-                    I = self.ideal(*((prime,) + tuple((matrix(self.basis()) * qqq.transpose())[0])))
-            if I:
-                # This doesn't work because is_prime() just calls this
-                # routine to try to factor the ideal!
-                # assert I.is_prime()
+                # I'd like qq = q.basis_matrix().change_ring(K.constant_field()),
+                # but that produces exceptions like "TypeError: unable to convert 1 to a rational"
+                qqq = matrix([[e.lift() for e in r] for r in q.basis_matrix()])
+                I = self.ideal(*((prime,) + tuple((matrix(self.basis()) * qqq.transpose())[0])))
 
                 # Compute an element beta in O (self: the maximal
                 # order), but not in pO (p: ideal's underlying prime),
