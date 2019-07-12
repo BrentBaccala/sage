@@ -1710,21 +1710,11 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 # the equation order (I think), and we need something
                 # w.r.t the maximal order basis.
 
-                # p and qgen generates the prime; modulo pO, qgenb generates the prime
-                #qgenb = [to(qgen[i]) for i in range(n)]
-                #m =[]
-                #for i in range(n):
-                #    m.append(sum(qgenb[j] * mtable[i][j] for j in range(n)))
-                #beta  = [fr(c) for c in matrix(m).left_kernel().basis()[0]]
-
                 m =[]
                 for g in q.basis_matrix():
                     for i in range(n):
-                        #m.append(sum(g[j] * algebra_matrices_reduced[i][j] for j in range(n)))
                         m.extend(list(matrix([g * algebra_matrices_reduced[i] for  i in range(n)]).transpose()))
                 beta  = [c.lift() for c in matrix(m).right_kernel().basis()[0]]
-
-                #beta  = [c.lift() for c in q.basis_matrix().transpose().left_kernel().basis()[0]]
 
                 qq = q
                 index = 1
