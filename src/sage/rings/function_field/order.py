@@ -1658,6 +1658,12 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 # The zero ideal is the (only) maximal ideal, so A is
                 # a field, and the ideal is prime w/out any factorization
                 I = self.ideal(prime)
+
+                I.is_prime.set_cache(True)
+                I._prime_below = ideal
+                I._relative_degree = n
+                I._ramification_index = 1
+                I._beta = [1] + [0]*(n-1)
             else:
                 try:
                     # I'd like qq = q.basis_matrix().change_ring(K.constant_field()),
@@ -1747,7 +1753,7 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                     # value is (ideal, relative_degree, ramification_index)
                     #factors.append((I, 1, exp))
                     #factors.append((I, 1, index))
-                factors.append((I, 1, index))
+                factors.append((I, I._relative_degree, I._ramification_index))
 
         return factors
 
