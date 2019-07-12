@@ -1740,7 +1740,7 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 I._prime_below = ideal
                 #I._relative_degree = degree
                 #I._ramification_index = index
-                I._relative_degree = 1
+                I._relative_degree = q.basis_matrix().right_nullity()
                 I._ramification_index = index
                 I._beta = beta
 
