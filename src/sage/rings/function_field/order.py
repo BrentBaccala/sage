@@ -1734,16 +1734,11 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 I._ramification_index = index
                 I._beta = beta
 
-                #exp = I.valuation(ideal)
-                exp = I.valuation(self.ideal(p))
-                #exp = 1
-                #if exp != 0:
+            # This doesn't work because is_prime() just calls this
+            # routine to try to factor the ideal!
+            # assert I.is_prime()
 
-                    # XXX 1 is not right - need the degree of the ideal
-                    # value is (ideal, relative_degree, ramification_index)
-                    #factors.append((I, 1, exp))
-                    #factors.append((I, 1, index))
-                factors.append((I, I._relative_degree, I._ramification_index))
+            factors.append((I, I._relative_degree, I._ramification_index))
 
         return factors
 
