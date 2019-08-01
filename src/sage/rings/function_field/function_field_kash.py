@@ -120,7 +120,7 @@ from .ideal import FunctionFieldIdeal
 from .place import FunctionFieldPlace
 from .divisor import FunctionFieldDivisor
 from .constructor import FunctionField
-from .maps import FunctionFieldCompletion
+from sage.categories.map import Map
 
 class RationalFunctionField_kash(RationalFunctionField):
     """
@@ -1114,7 +1114,7 @@ class LaurentSeriesDifferential(LaurentSeries):
         else:
             return "\\left[\\vphantom{{{0}}}\\right.{1}\\left.\\vphantom{{{0}}}\\right]\\,".format(latex_series_no_alignment, latex_series) + differential
 
-class FunctionFieldCompletion_kash(FunctionFieldCompletion):
+class FunctionFieldCompletion_kash(Map):
     """
     Completions on kash function fields.  Currently only supports
     QQbar as the field of constants.
@@ -1198,7 +1198,7 @@ class FunctionFieldCompletion_kash(FunctionFieldCompletion):
         # precision
         codomain = LaurentSeriesRing(field.constant_base_field(), name=name, default_prec=prec)
 
-        FunctionFieldCompletion.__init__(self, field, codomain)
+        Map.__init__(self, field, codomain)
 
         if uvar is not None:
             if uvar.parent() is SR:
@@ -1217,6 +1217,23 @@ class FunctionFieldCompletion_kash(FunctionFieldCompletion):
         self._place = place
         self._precision = codomain.default_prec()
         self._uvar = uvar
+
+    def _repr_type(self):
+        """
+        Return a string containing the type of the map.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(GF(2), implementation='kash'); _.<Y> = K[] # optional - kash
+            sage: L.<y> = K.extension(Y^2 + Y + x + 1/x)      # optional - kash
+            sage: p = L.places_infinite()[0]                  # optional - kash
+            sage: m = L.completion(p)                         # optional - kash
+            sage: m                                           # indirect doctest, optional - kash
+            Completion map:
+              From: Function field in y defined by y^2 + y + (x^2 + 1)/x
+              To:   Laurent Series Ring in s over Finite Field of size 2
+        """
+        return 'Completion'
 
     def _call_(self, f):
         """
