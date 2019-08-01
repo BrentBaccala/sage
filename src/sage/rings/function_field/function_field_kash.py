@@ -2144,7 +2144,7 @@ class FunctionFieldIdeal_kash(FunctionFieldIdeal):
             sage: F.<y> = K.extension(t^3-x^2*(x^2+x+1)^2)    # optional - kash
             sage: O = F.maximal_order()                       # optional - kash
             sage: I = O.ideal(x,1/y)                          # optional - kash
-            sage: I.denominator() * I.basis_matrix() == I.hnf()
+            sage: I.denominator() * I.hnf() == I.basis_matrix() # optional - kash
             True
         """
         return self._hnf_denominator()[0]
