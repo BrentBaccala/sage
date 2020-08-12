@@ -8,6 +8,12 @@ import time
 from distutils import log
 from distutils.core import setup
 
+# Work around a Cython problem in Python 3.8.x on macOS
+# https://github.com/cython/cython/issues/3262
+if os.uname().sysname == 'Darwin':
+    import multiprocessing
+    multiprocessing.set_start_method('fork', force=True)
+
 #########################################################
 ### Set source directory
 #########################################################
@@ -157,12 +163,10 @@ code = setup(name = 'sage',
                  'bin/sage-rebase.sh',
                  'bin/sage-rebaseall.bat',
                  'bin/sage-rebaseall.sh',
-                 'bin/sage-rst2sws',
                  'bin/sage-rst2txt',
                  'bin/sage-run',
                  'bin/sage-run-cython',
                  'bin/sage-startuptime.py',
-                 'bin/sage-sws2rst',
                  'bin/sage-update-src',
                  'bin/sage-update-version',
                  'bin/sage-upgrade',
