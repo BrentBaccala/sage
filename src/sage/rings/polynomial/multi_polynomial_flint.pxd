@@ -1,4 +1,4 @@
-from sage.libs.flint.types cimport fmpz_mpoly_ctx_t, fmpz_mpoly_t
+from sage.libs.flint.types cimport fmpz_mpoly_ctx_struct, fmpz_mpoly_ctx_t, fmpz_mpoly_t
 
 from sage.rings.polynomial.multi_polynomial_ring_base cimport MPolynomialRing_base
 from sage.rings.polynomial.multi_polynomial cimport MPolynomial
@@ -12,3 +12,4 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
 cdef class MPolynomial_flint(MPolynomial):
     cdef fmpz_mpoly_t _poly
+    cdef fmpz_mpoly_ctx_struct * _ctx

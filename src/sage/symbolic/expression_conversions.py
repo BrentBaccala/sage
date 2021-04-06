@@ -1443,7 +1443,7 @@ class PolynomialConverter(Converter):
             operator = _operator.add
         elif operator == mul_vararg:
             operator = _operator.mul
-        ops = [self(a) for a in ex.operands()]
+        ops = (self(a) for a in ex.operands())
         return reduce(operator, ops)
 
 def polynomial(ex, base_ring=None, ring=None):

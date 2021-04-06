@@ -806,13 +806,11 @@ cdef class MPolynomial_flint(MPolynomial):
         fmpz_mpoly_init(self._poly, parent._ctx)
         
         self._parent = parent
-        #self._parent_ctx = parent._ctx
-        #self._parent_ring = singular_ring_reference(parent._ring)
+        self._ctx = & parent._ctx[0]
 
     def __dealloc__(self):
-        # fmpz_mpoly_clear(self._poly, self._parent_ctx)
         # WARNING: the Cython class self._parent is now no longer accessible!
-        pass
+        fmpz_mpoly_clear(self._poly, self._ctx)
 
     cpdef _richcmp_(left, right, int op):
         """
