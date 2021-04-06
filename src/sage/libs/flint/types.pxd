@@ -26,6 +26,7 @@ cdef extern from "flint_wrap.h":
     ctypedef void* flint_rand_t
     cdef long FLINT_BITS
     cdef long FLINT_D_BITS
+    ctypedef ulong flint_bitcnt_t
 
 # flint/fmpz.h:
 cdef extern from "flint_wrap.h":
@@ -92,6 +93,29 @@ cdef extern from "flint_wrap.h":
         pass
 
     ctypedef fmpz_mod_poly_struct fmpz_mod_poly_t[1]
+
+# flint/mpoly.h:
+cdef extern from "flint_wrap.h":
+    ctypedef struct mpoly_ctx_struct:
+        pass
+
+    ctypedef mpoly_ctx_struct mpoly_ctx_t[1]
+
+# flint/fmpz_mpoly.h:
+cdef extern from "flint_wrap.h":
+    ctypedef struct fmpz_mpoly_struct:
+        fmpz * coeffs
+        ulong * exps
+        slong alloc
+        slong length
+        flint_bitcnt_t bits
+
+    ctypedef fmpz_mpoly_struct fmpz_mpoly_t[1]
+
+    ctypedef struct fmpz_mpoly_ctx_struct:
+        mpoly_ctx_t minfo
+
+    ctypedef fmpz_mpoly_ctx_struct fmpz_mpoly_ctx_t[1]
 
 # flint/nmod_poly.h:
 cdef extern from "flint_wrap.h":

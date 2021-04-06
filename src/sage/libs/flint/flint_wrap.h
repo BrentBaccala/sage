@@ -39,6 +39,7 @@
 #include <flint/fmpz_mat.h>
 #include <flint/fmpz_poly_mat.h>
 #include <flint/fmpz_mod_poly.h>
+#include <flint/fmpz_mpoly.h>
 #include <flint/fmpz_poly.h>
 #include <flint/fmpz_poly_q.h>
 #include <flint/fmpz_vec.h>
