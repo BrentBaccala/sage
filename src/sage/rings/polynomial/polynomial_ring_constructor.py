@@ -781,6 +781,15 @@ def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementat
         else:
             implementation_names.update([None, "singular"])
 
+    if implementation == "FLINT":
+        from sage.rings.polynomial.multi_polynomial_flint import MPolynomialRing_flint
+        try:
+            R = MPolynomialRing_flint(base_ring, n, names, order)
+        except:
+            raise
+        else:
+            implementation_names.update([None, "FLINT"])
+
     if R is None and implementation is None:
         # Interpret implementation=None as implementation="generic"
         implementation = "generic"
