@@ -1069,6 +1069,9 @@ ext_modules = [
     Extension('sage.rings.polynomial.multi_polynomial_libsingular',
               sources = ['sage/rings/polynomial/multi_polynomial_libsingular.pyx']),
 
+    Extension('sage.rings.polynomial.multi_polynomial_flint',
+              sources = ['sage/rings/polynomial/multi_polynomial_flint.pyx']),
+
     Extension('sage.rings.polynomial.multi_polynomial_ring_base',
               sources = ['sage/rings/polynomial/multi_polynomial_ring_base.pyx']),
 
