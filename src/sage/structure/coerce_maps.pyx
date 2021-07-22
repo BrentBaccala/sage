@@ -5,6 +5,8 @@ Coerce maps
 import re
 import types
 
+import traceback
+
 from sage.structure.parent cimport Parent
 from sage.structure.element cimport Element
 from sage.sets.pythonclass cimport Set_PythonType
@@ -12,7 +14,7 @@ from sage.sets.pythonclass cimport Set_PythonType
 cdef object BuiltinMethodType = type(repr)
 
 # COERCE TODO: remove or integrate better (as this bit is only checked on an error)
-cdef bint print_warnings = 0
+cdef bint print_warnings = 1
 
 
 cdef class DefaultConvertMap(Map):
@@ -102,8 +104,10 @@ cdef class DefaultConvertMap(Map):
         cdef Parent C = self._codomain
         try:
             return C._element_constructor(C, x)
-        except Exception:
+        except Exception as ex:
             if print_warnings:
+                print(ex)
+                traceback.print_exc()
                 print(type(C), C)
                 print(type(C._element_constructor), C._element_constructor)
             raise
@@ -131,8 +135,10 @@ cdef class DefaultConvertMap(Map):
                     return C._element_constructor(C, x, *args)
                 else:
                     return C._element_constructor(C, x, *args, **kwds)
-        except Exception:
+        except Exception as ex:
             if print_warnings:
+                print(ex)
+                traceback.print_exc()
                 print(type(C), C)
                 print(type(C._element_constructor), C._element_constructor)
             raise
@@ -154,8 +160,10 @@ cdef class DefaultConvertMap_unique(DefaultConvertMap):
         cdef Parent C = self._codomain
         try:
             return C._element_constructor(x)
-        except Exception:
+        except Exception as ex:
             if print_warnings:
+                print(ex)
+                traceback.print_exc()
                 print(type(C), C)
                 print(type(C._element_constructor), C._element_constructor)
             raise
@@ -173,8 +181,10 @@ cdef class DefaultConvertMap_unique(DefaultConvertMap):
                     return C._element_constructor(x, *args)
                 else:
                     return C._element_constructor(x, *args, **kwds)
-        except Exception:
+        except Exception as ex:
             if print_warnings:
+                print(ex)
+                traceback.print_exc()
                 print(type(C), C)
                 print(type(C._element_constructor), C._element_constructor)
             raise

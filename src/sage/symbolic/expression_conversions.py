@@ -16,6 +16,8 @@ overridden by subclasses.
 ###############################################################################
 from __future__ import print_function
 
+import sys
+import functools
 import operator as _operator
 from sage.rings.rational_field import QQ
 from sage.symbolic.all import I, SR
@@ -23,6 +25,8 @@ from sage.functions.all import exp
 from sage.symbolic.operators import arithmetic_operators, relation_operators, FDerivativeOperator, add_vararg, mul_vararg
 from sage.rings.number_field.number_field_element_quadratic import NumberFieldElement_quadratic
 from sage.rings.universal_cyclotomic_field import UniversalCyclotomicField
+from sage.rings.fraction_field_element import is_FractionFieldElement
+from sage.rings.polynomial.multi_polynomial_element import is_MPolynomial
 from functools import reduce
 GaussianField = I.pyobject().parent()
 
@@ -1401,6 +1405,60 @@ class PolynomialConverter(Converter):
             return self(base)**Integer(exp)
         if operator == add_vararg:
             operator = _operator.add
+            if hasattr(self.ring, 'addmul_multi') and all(a.operator() == mul_vararg for a in ex.operands()):
+                # also would like to check here if the b's are powers and handle them specially
+                verbose = (len(ex.operands()) == 16)
+                # verbose = True
+                if verbose: print('forming addmul_multi', len(ex.operands()), file=sys.stderr)
+                terms = []
+                def print_status(term):
+                    factor = term[-1]
+                    if is_FractionFieldElement(factor):
+                        print("forming addmul_multi", len(terms), len(term)-1, "len", len(factor.numerator()), len(factor.denominator()), "degree", factor.numerator().degree(), factor.denominator().degree())
+                    elif is_MPolynomial(factor):
+                        print("forming addmul_multi", len(terms), len(term)-1, "len", len(factor), "degree", factor.degree())
+                    else:
+                        print("forming addmul_multi", len(terms), len(term)-1, factor)
+                for a in ex.operands():
+                   add_operators = [b.operator() == add_vararg for b in a.operands()]
+                   if add_operators.count(True) == 1 and verbose:
+                       # only one factor in the product is a sum, so distribute over it
+                       distterm = []
+                       for i in range(len(a.operands())):
+                           if not add_operators[i]:
+                               if a.operands()[i].is_numeric():
+                                   distterm.append(a.operands()[i].pyobject())
+                               else:
+                                   distterm.append(self(a.operands()[i]))
+                               print_status(distterm)
+                       for c in a.operands()[add_operators.index(True)].operands():
+                           term = distterm.copy()
+                           term.append(self(c))
+                           if verbose:
+                               print_status(term)
+                           terms.append(term)
+                   else:
+                       term = []
+                       for b in a.operands():
+                          #print(type(b), b.operator(), b, file=sys.stderr)
+                          if b.is_numeric():
+                              # PolynomialConverter can handle a rational function, but not a rational number
+                              term.append(b.pyobject())
+                          else:
+                              term.append(self(b))
+                          if verbose:
+                              print_status(term)
+                       terms.append(term)
+                if verbose:
+                   print("calling addmul_multi")
+                try:
+                   result = self.ring.addmul_multi(terms)
+                except Exception as ex:
+                   print("Exception in addmul_multi:", ex)
+                   raise
+                check = reduce(_operator.add, map(functools.partial(reduce, _operator.mul), terms))
+                assert check == result
+                return result
         elif operator == mul_vararg:
             operator = _operator.mul
         ops = (self(a) for a in ex.operands())

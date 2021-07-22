@@ -2,9 +2,13 @@
 Sparse multivariate polynomials over `\ZZ`, implemented using FLINT
 """
 
+import sys
+
 from sage.rings.integer_ring import ZZ
 
 from sage.rings.polynomial.polydict cimport ETuple
+
+from sage.rings.fraction_field_element import is_FractionFieldElement
 
 from sage.structure.element import coerce_binop
 from sage.structure.element cimport Element, CommutativeRingElement
@@ -19,8 +23,11 @@ from sage.libs.flint.fmpz_mpoly cimport *
 from libc.stdlib cimport malloc, free
 
 from sage.misc.sage_eval import sage_eval
+from sage.misc.misc_c import prod
 
 from sage.cpython.string cimport char_to_str, str_to_bytes
+
+from functools import reduce
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
@@ -720,6 +727,84 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
         return p
 
+    def addmul_multi(self, terms):
+
+        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
+        p._parent = self
+
+        #print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
+
+        n = list()
+        d = list()
+        dprod = list()
+        term_lengths = list()
+
+        for term in terms:
+            term_lengths.append(0)
+            dprod.append(self(1))
+            for factor in term:
+               if is_FractionFieldElement(factor):
+                   assert(factor.numerator().parent() is self or factor.numerator().parent() is self.base_ring())
+                   assert(factor.denominator().parent() is self or factor.denominator().parent() is self.base_ring())
+                   n.append(self(factor.numerator()))
+                   d.append(self(factor.denominator()))
+               else:
+                   assert(factor.parent() is self or factor.parent() is self.base_ring())
+                   n.append(self(factor))
+                   d.append(self(1))
+               term_lengths[-1] += 1
+               dprod[-1] *= d[-1]
+
+
+        #print("fmpz_mpoly_addmul_multi n =", n, file=sys.stderr)
+        #print("fmpz_mpoly_addmul_multi d =", d, file=sys.stderr)
+
+        #print("fmpz_mpoly_addmul_multi computing lcm", term_lengths, file=sys.stderr)
+
+        #lcm = reduce(lambda x,y: x.lcm(y), dprod)
+
+        #print("fmpz_mpoly_addmul_multi lcm =", lcm, file=sys.stderr)
+
+        multiple = list()
+
+        # print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
+
+        num_polys = len(n) * len(term_lengths)
+
+        def flatten(t):
+            return [item for sublist in t for item in sublist]
+
+        termmap = flatten(map(lambda a: [a[0]]*a[1], enumerate(term_lengths)))
+
+        #print("fmpz_mpoly_addmul_multi termmap =", termmap, file=sys.stderr)
+        assert len(termmap) == len(n)
+
+        cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * num_polys)
+        cdef slong * iptr = <slong *>malloc(sizeof(slong) * len(terms))
+        cdef MPolynomial_flint ni
+        cdef MPolynomial_flint multiplei
+        try:
+         for t in range(len(terms)):
+          iptr[t] = len(n)
+          for i in range(len(n)):
+            if termmap[i] == t:
+               ni = n[i]
+            else:
+               ni = d[i]
+            fptr[t*len(n) + i] = <const fmpz_mpoly_struct *>ni._poly
+        except Exception as ex:
+            print(ex, file=sys.stdout)
+            raise
+
+        #print("fmpz_mpoly_addmul_multi", len(terms), file=sys.stderr)
+        fmpz_mpoly_addmul_multi(p._poly, fptr, iptr, len(terms), self._ctx)
+
+        denom = prod(d)
+        if denom == 1:
+            return p
+        else:
+            return p/denom
+
     # It is required in cython to redefine __hash__ when __richcmp__ is
     # overloaded. Also just writing
     #         __hash__ = CategoryObject.__hash__
@@ -1046,6 +1131,10 @@ cdef class MPolynomial_flint(MPolynomial):
         pstr = char_to_str(cstr)
         free(<void *>cstr)
         return pstr
+
+    def __len__(self):
+        cdef fmpz_mpoly_struct A = self._poly[0]
+        return Integer(A.length)
 
     def degree(self):
         """
@@ -1500,6 +1589,29 @@ cdef class MPolynomial_flint(MPolynomial):
             raise RuntimeError("GCD failed")
 
         return p
+
+    @coerce_binop
+    def lcm(left, right, algorithm=None, **kwds):
+        """
+        Return the least common multiple of left and right.
+        """
+#        cdef poly *_res
+#        cdef ring *_ring = self._parent_ring
+#        cdef MPolynomial_libsingular _right = <MPolynomial_libsingular>right
+#
+#        if _right._poly == NULL:
+#            return self
+#        elif self._poly == NULL:
+#            return right
+#        elif p_IsOne(self._poly, _ring):
+#            return self
+#        elif p_IsOne(_right._poly, _ring):
+#            return right
+#
+#        res = new_MP(self._parent, _res)
+#        return res
+
+        return left*right/left.gcd(right)
 
     def __reduce__(self):
         """
