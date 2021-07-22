@@ -1,0 +1,102 @@
+FractionField F
+
+F(ex)
+
+F.__call__  is sage.structure.parent.Parent.__call__
+calls F.convert_map_from(SR) since ex is in SR
+
+convert_map.__call__ is sage.categories.map.__call__
+  calls convert_map._call_
+
+convert_map._call_ is sage.structures.coerce_map.DefaultConvertMap_unique._call_
+  calls F._element_constructor
+
+where is F._element_constructor?
+
+FractionField._element_constructor_
+   calls self._element_class(self, x, ring_one, coerce=coerce)
+
+F._element_class is sage.rings.fraction_field_element.FractionFieldElement
+
+in its __init__:
+   if coerce:
+      self.__numerator   = parent.ring()(numerator)
+
+through Parent.__call__ and convert_map._call_, eventually calls C._element_constructor(x)
+
+parent.ring() is probably MPolynomialRing_flint, and so is C
+
+MPolynomialRing_flint's _element_constructor_ calls element._polynomial_(self)
+
+at this point, we're working on the numerator() of the original expression, and call its _polynomial_ method,
+which is sage.symbolic.expression.Expression._polynomial_ and calls self.polynomial(None, ring=R),
+
+which imports and calls:
+   6918         from sage.symbolic.expression_conversions import polynomial
+-> 6919         return polynomial(self, base_ring=base_ring, ring=ring)
+
+self is the numerator expression, base_ring is None, and ring is the FLINT polynomial ring
+
+then we create a converter:
+
+   1478     converter = PolynomialConverter(ex, base_ring=base_ring, ring=ring)
+-> 1479     res = converter()
+   1480     return converter.ring(res)
+
+in expression_conversions.py's polynomial function
+
+then, in expression_converter's __call__:
+
+--> 220             return self.arithmetic(ex, operator)
+
+then the terms comprehension in
+
+-> 1409                 terms = [[self(b) for b in a.operands()] for a in ex.operands()]
+
+then back to __call__'s line 220
+
+then the assert check == result fails
+
+two addmul's are nested:
+
+forming addmul_multi 16
+forming addmul_multi 2
+
+I saved the ex that the assert fails on as 'bwb'
+It's a sum of two operands
+Calling F(bwb.operands()[0]) triggers an addmul_multi 112 which succeeds
+
+bwb.operands()[0] is a 2-term mul; it's second term is an add
+bwb.operands()[0].operands()[1].operands()[1] is a mul
+
+sage: F(bwb.operands()[0].operands()[1])
+forming addmul_multi 112
+fmpz_mpoly_addmul_multi entry 112
+fmpz_mpoly_addmul_multi computing lcm [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2]
+fmpz_mpoly_addmul_multi 112
+(c15*m0*x1*r1*r2*r12+b15*m1*x1*r1*r2*r12+c23*m0*y1*r1*r2*r12+b23*m1*y1*r1*r2*r12+c31*m0*z1*r1*r2*r12+b31*m1*z1*r1*r2*r12+c39*m0*x2*r1*r2*r12+b39*m1*x2*r1*r2*r12+c47*m0*y2*r1*r2*r12+b47*m1*y2*r1*r2*r12+c55*m0*z2*r1*r2*r12+b55*m1*z2*r1*r2*r12+c12*m0*x1*r1*r2+b12*m1*x1*r1*r2+c20*m0*y1*r1*r2+b20*m1*y1*r1*r2+c28*m0*z1*r1*r2+b28*m1*z1*r1*r2+c36*m0*x2*r1*r2+b36*m1*x2*r1*r2+c44*m0*y2*r1*r2+b44*m1*y2*r1*r2+c52*m0*z2*r1*r2+b52*m1*z2*r1*r2+c13*m0*x1*r1*r12+b13*m1*x1*r1*r12+c21*m0*y1*r1*r12+b21*m1*y1*r1*r12+c29*m0*z1*r1*r12+b29*m1*z1*r1*r12+c37*m0*x2*r1*r12+b37*m1*x2*r1*r12+c45*m0*y2*r1*r12+b45*m1*y2*r1*r12+c53*m0*z2*r1*r12+b53*m1*z2*r1*r12+c14*m0*x1*r2*r12+b14*m1*x1*r2*r12+c22*m0*y1*r2*r12+b22*m1*y1*r2*r12+c30*m0*z1*r2*r12+b30*m1*z1*r2*r12+c38*m0*x2*r2*r12+b38*m1*x2*r2*r12+c46*m0*y2*r2*r12+b46*m1*y2*r2*r12+c54*m0*z2*r2*r12+b54*m1*z2*r2*r12+c7*m0*r1*r2*r12+b7*m1*r1*r2*r12+c9*m0*x1*r1+b9*m1*x1*r1+c17*m0*y1*r1+b17*m1*y1*r1+c25*m0*z1*r1+b25*m1*z1*r1+c33*m0*x2*r1+b33*m1*x2*r1+c41*m0*y2*r1+b41*m1*y2*r1+c49*m0*z2*r1+b49*m1*z2*r1+c10*m0*x1*r2+b10*m1*x1*r2+c18*m0*y1*r2+b18*m1*y1*r2+c26*m0*z1*r2+b26*m1*z1*r2+c34*m0*x2*r2+b34*m1*x2*r2+c42*m0*y2*r2+b42*m1*y2*r2+c50*m0*z2*r2+b50*m1*z2*r2+c4*m0*r1*r2+b4*m1*r1*r2+c11*m0*x1*r12+b11*m1*x1*r12+c19*m0*y1*r12+b19*m1*y1*r12+c27*m0*z1*r12+b27*m1*z1*r12+c35*m0*x2*r12+b35*m1*x2*r12+c43*m0*y2*r12+b43*m1*y2*r12+c51*m0*z2*r12+b51*m1*z2*r12+c5*m0*r1*r12+b5*m1*r1*r12+c6*m0*r2*r12+b6*m1*r2*r12+c8*m0*x1+b8*m1*x1+c16*m0*y1+b16*m1*y1+c24*m0*z1+b24*m1*z1+c32*m0*x2+b32*m1*x2+c40*m0*y2+b40*m1*y2+c48*m0*z2+b48*m1*z2+c1*m0*r1+b1*m1*r1+c2*m0*r2+b2*m1*r2+c3*m0*r12+b3*m1*r12+c0*m0+b0*m1)/(c15*x1*r1*r2*r12+c23*y1*r1*r2*r12+c31*z1*r1*r2*r12+c39*x2*r1*r2*r12+c47*y2*r1*r2*r12+c55*z2*r1*r2*r12+c12*x1*r1*r2+c20*y1*r1*r2+c28*z1*r1*r2+c36*x2*r1*r2+c44*y2*r1*r2+c52*z2*r1*r2+c13*x1*r1*r12+c21*y1*r1*r12+c29*z1*r1*r12+c37*x2*r1*r12+c45*y2*r1*r12+c53*z2*r1*r12+c14*x1*r2*r12+c22*y1*r2*r12+c30*z1*r2*r12+c38*x2*r2*r12+c46*y2*r2*r12+c54*z2*r2*r12+c7*r1*r2*r12+c9*x1*r1+c17*y1*r1+c25*z1*r1+c33*x2*r1+c41*y2*r1+c49*z2*r1+c10*x1*r2+c18*y1*r2+c26*z1*r2+c34*x2*r2+c42*y2*r2+c50*z2*r2+c4*r1*r2+c11*x1*r12+c19*y1*r12+c27*z1*r12+c35*x2*r12+c43*y2*r12+c51*z2*r12+c5*r1*r12+c6*r2*r12+c8*x1+c16*y1+c24*z1+c32*x2+c40*y2+c48*z2+c1*r1+c2*r2+c3*r12+c0)
+sage: bwb.operands()[0].operands()[1].operands()
+[m0,
+ (b15*r1*r12*r2*x1 + b39*r1*r12*r2*x2 + b23*r1*r12*r2*y1 + b47*r1*r12*r2*y2 + b31*r1*r12*r2*z1 + b55*r1*r12*r2*z2 + b7*r1*r12*r2 + b13*r1*r12*x1 + b12*r1*r2*x1 + b14*r12*r2*x1 + b37*r1*r12*x2 + b36*r1*r2*x2 + b38*r12*r2*x2 + b21*r1*r12*y1 + b20*r1*r2*y1 + b22*r12*r2*y1 + b45*r1*r12*y2 + b44*r1*r2*y2 + b46*r12*r2*y2 + b29*r1*r12*z1 + b28*r1*r2*z1 + b30*r12*r2*z1 + b53*r1*r12*z2 + b52*r1*r2*z2 + b54*r12*r2*z2 + b5*r1*r12 + b4*r1*r2 + b6*r12*r2 + b9*r1*x1 + b11*r12*x1 + b10*r2*x1 + b33*r1*x2 + b35*r12*x2 + b34*r2*x2 + b17*r1*y1 + b19*r12*y1 + b18*r2*y1 + b41*r1*y2 + b43*r12*y2 + b42*r2*y2 + b25*r1*z1 + b27*r12*z1 + b26*r2*z1 + b49*r1*z2 + b51*r12*z2 + b50*r2*z2 + b1*r1 + b3*r12 + b2*r2 + b8*x1 + b32*x2 + b16*y1 + b40*y2 + b24*z1 + b48*z2 + b0)*m1/(c15*r1*r12*r2*x1 + c39*r1*r12*r2*x2 + c23*r1*r12*r2*y1 + c47*r1*r12*r2*y2 + c31*r1*r12*r2*z1 + c55*r1*r12*r2*z2 + c7*r1*r12*r2 + c13*r1*r12*x1 + c12*r1*r2*x1 + c14*r12*r2*x1 + c37*r1*r12*x2 + c36*r1*r2*x2 + c38*r12*r2*x2 + c21*r1*r12*y1 + c20*r1*r2*y1 + c22*r12*r2*y1 + c45*r1*r12*y2 + c44*r1*r2*y2 + c46*r12*r2*y2 + c29*r1*r12*z1 + c28*r1*r2*z1 + c30*r12*r2*z1 + c53*r1*r12*z2 + c52*r1*r2*z2 + c54*r12*r2*z2 + c5*r1*r12 + c4*r1*r2 + c6*r12*r2 + c9*r1*x1 + c11*r12*x1 + c10*r2*x1 + c33*r1*x2 + c35*r12*x2 + c34*r2*x2 + c17*r1*y1 + c19*r12*y1 + c18*r2*y1 + c41*r1*y2 + c43*r12*y2 + c42*r2*y2 + c25*r1*z1 + c27*r12*z1 + c26*r2*z1 + c49*r1*z2 + c51*r12*z2 + c50*r2*z2 + c1*r1 + c3*r12 + c2*r2 + c8*x1 + c32*x2 + c16*y1 + c40*y2 + c24*z1 + c48*z2 + c0)]
+sage: 
+sage: F(bwb.operands()[0].operands()[1].operands()[1])
+(b15*m1*x1*r1*r2*r12+b23*m1*y1*r1*r2*r12+b31*m1*z1*r1*r2*r12+b39*m1*x2*r1*r2*r12+b47*m1*y2*r1*r2*r12+b55*m1*z2*r1*r2*r12+b12*m1*x1*r1*r2+b20*m1*y1*r1*r2+b28*m1*z1*r1*r2+b36*m1*x2*r1*r2+b44*m1*y2*r1*r2+b52*m1*z2*r1*r2+b13*m1*x1*r1*r12+b21*m1*y1*r1*r12+b29*m1*z1*r1*r12+b37*m1*x2*r1*r12+b45*m1*y2*r1*r12+b53*m1*z2*r1*r12+b14*m1*x1*r2*r12+b22*m1*y1*r2*r12+b30*m1*z1*r2*r12+b38*m1*x2*r2*r12+b46*m1*y2*r2*r12+b54*m1*z2*r2*r12+b7*m1*r1*r2*r12+b9*m1*x1*r1+b17*m1*y1*r1+b25*m1*z1*r1+b33*m1*x2*r1+b41*m1*y2*r1+b49*m1*z2*r1+b10*m1*x1*r2+b18*m1*y1*r2+b26*m1*z1*r2+b34*m1*x2*r2+b42*m1*y2*r2+b50*m1*z2*r2+b4*m1*r1*r2+b11*m1*x1*r12+b19*m1*y1*r12+b27*m1*z1*r12+b35*m1*x2*r12+b43*m1*y2*r12+b51*m1*z2*r12+b5*m1*r1*r12+b6*m1*r2*r12+b8*m1*x1+b16*m1*y1+b24*m1*z1+b32*m1*x2+b40*m1*y2+b48*m1*z2+b1*m1*r1+b2*m1*r2+b3*m1*r12+b0*m1)/(c15*x1*r1*r2*r12+c23*y1*r1*r2*r12+c31*z1*r1*r2*r12+c39*x2*r1*r2*r12+c47*y2*r1*r2*r12+c55*z2*r1*r2*r12+c12*x1*r1*r2+c20*y1*r1*r2+c28*z1*r1*r2+c36*x2*r1*r2+c44*y2*r1*r2+c52*z2*r1*r2+c13*x1*r1*r12+c21*y1*r1*r12+c29*z1*r1*r12+c37*x2*r1*r12+c45*y2*r1*r12+c53*z2*r1*r12+c14*x1*r2*r12+c22*y1*r2*r12+c30*z1*r2*r12+c38*x2*r2*r12+c46*y2*r2*r12+c54*z2*r2*r12+c7*r1*r2*r12+c9*x1*r1+c17*y1*r1+c25*z1*r1+c33*x2*r1+c41*y2*r1+c49*z2*r1+c10*x1*r2+c18*y1*r2+c26*z1*r2+c34*x2*r2+c42*y2*r2+c50*z2*r2+c4*r1*r2+c11*x1*r12+c19*y1*r12+c27*z1*r12+c35*x2*r12+c43*y2*r12+c51*z2*r12+c5*r1*r12+c6*r2*r12+c8*x1+c16*y1+c24*z1+c32*x2+c40*y2+c48*z2+c1*r1+c2*r2+c3*r12+c0)
+
+
+
+negation doesn't work right when converting to a fraction field:
+
+sage: bwb = SR(-1/2)
+sage: F(bwb.pyobject())
+1/2
+sage: type(F(bwb.pyobject()))
+<class 'sage.rings.fraction_field_element.FractionFieldElement'>
+sage: bwb.pyobject()
+-1/2
+sage: -bwb.pyobject()
+1/2
+sage: F(-bwb.pyobject())
+1/2
+sage: F(bwb.pyobject())
+1/2
+sage: 
