@@ -14,7 +14,7 @@ from sage.sets.pythonclass cimport Set_PythonType
 cdef object BuiltinMethodType = type(repr)
 
 # COERCE TODO: remove or integrate better (as this bit is only checked on an error)
-cdef bint print_warnings = 1
+cdef bint print_warnings = 0
 
 
 cdef class DefaultConvertMap(Map):

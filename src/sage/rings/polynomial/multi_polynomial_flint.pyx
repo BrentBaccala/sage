@@ -731,7 +731,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
         return p
 
-    def addmul_multi(self, terms):
+    def addmul_multi(self, terms, verbose=False):
         """
         Accepts a list of terms, each of which is a list of factors, and constructs the sum
         of the products.  The factors can be either polynomials or rational functions in
@@ -741,7 +741,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
         p._parent = self
 
-        #print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
 
         # Construct a list of polynomials that we will refer to by their index number.
         # Factoring each polynomial seems a bit too time consuming, so I just ensure
@@ -758,6 +758,8 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         # when multiplied together, form the input polynomial.
 
         def add_to_polys(newpoly, startpoly=0):
+            assert newpoly.parent() is self
+            if verbose: print("add_to_polys: adding polynomial of length", len(newpoly))
             for i in range(startpoly, len(polys)):
                 oldpoly = polys[i]
                 if type(oldpoly) != list:
@@ -770,14 +772,14 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                             # since oldpoly was relatively prime to everything in the list,
                             # we don't need to check its factors at all; they're relatively prime, too
                             polys.append(gcd)
-                            polys.append(oldpoly/gcd)
+                            polys.append(self(oldpoly/gcd))
                             polys[i] = [len(polys) - 1, len(polys) - 2]
                             if newpoly == gcd:
                                 return [len(polys) - 2]
                         if newpoly != gcd:
                             # scan the rest of the list searching for the two new constituent parts,
                             r1 = add_to_polys(gcd, i+1)
-                            r2 = add_to_polys(newpoly/gcd, i+1)
+                            r2 = add_to_polys(self(newpoly/gcd), i+1)
                             return r1 + r2
             polys.append(newpoly)
             return [len(polys) - 1]
@@ -788,18 +790,27 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         d = list()
 
         # build a list of lists of indices into polys for numerators and denominators
+        next_len = 10
         for term in terms:
             n.append(Counter())
             d.append(Counter())
             for factor in term:
-               if is_FractionFieldElement(factor):
+               if is_FractionFieldElement(factor) or factor.parent() is self.base_ring().fraction_field():
                    assert(factor.numerator().parent() is self or factor.numerator().parent() is self.base_ring())
                    assert(factor.denominator().parent() is self or factor.denominator().parent() is self.base_ring())
                    n[-1].update(add_to_polys(self(factor.numerator())))
+                   if verbose: print("added polynomial to numerator", len(n), n[-1])
                    d[-1].update(add_to_polys(self(factor.denominator())))
+                   if verbose: print("added polynomial to denominator", len(d), d[-1])
                else:
+                   if not (factor.parent() is self or factor.parent() is self.base_ring()):
+                       print("factor", factor, factor.parent())
                    assert(factor.parent() is self or factor.parent() is self.base_ring())
                    n[-1].update(add_to_polys(self(factor)))
+                   if verbose: print("added polynomial to numerator", len(n), n[-1])
+               if verbose and len(polys) >= next_len:
+                   next_len += 10
+                   print("len(polys) =", len(polys))
 
         def flatten(t):
             return [item for sublist in t for item in sublist]
@@ -822,16 +833,16 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             common_set = set(itertools.chain.from_iterable(lists))
             return flatten([[e]*max(map(lambda l: l[e], lists)) for e in common_set])
 
-        #print("fmpz_mpoly_addmul_multi computing lcm", term_lengths, file=sys.stderr)
+        #print("fmpz_mpoly_addmul_multi term_lengths =", term_lengths, file=sys.stderr)
 
         lcm = common_elements(d)
 
-        #print("fmpz_mpoly_addmul_multi lcm =", lcm, file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi lcm =", lcm, file=sys.stderr)
 
         #print("fmpz_mpoly_addmul_multi n =", n, file=sys.stderr)
         #print("fmpz_mpoly_addmul_multi d =", d, file=sys.stderr)
 
-        # print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
 
         cdef slong * iptr = <slong *>malloc(sizeof(slong) * len(terms))
 
@@ -843,6 +854,8 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
            term_len += sum(lcm2.values())
            iptr[t] = term_len
            num_polys += term_len
+
+        if verbose: print("fmpz_mpoly_addmul_multi num_polys =", num_polys, file=sys.stderr)
 
         cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * num_polys)
         cdef MPolynomial_flint ni
@@ -864,7 +877,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             print(ex, file=sys.stdout)
             raise
 
-        #print("fmpz_mpoly_addmul_multi", len(terms), file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi", len(terms), file=sys.stderr)
         fmpz_mpoly_addmul_multi(p._poly, fptr, iptr, len(terms), self._ctx)
 
         if len(lcm) == 0:
