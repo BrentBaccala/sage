@@ -100,3 +100,86 @@ sage: F(-bwb.pyobject())
 sage: F(bwb.pyobject())
 1/2
 sage: 
+
+
+
+
+forming addmul_multi 16
+forming addmul_multi 0 0 len 1 degree 1
+forming addmul_multi 0 1 len 1 degree 1
+forming addmul_multi 0 2 -1
+forming addmul_multi 1 0 len 56 112 degree 5 6
+forming addmul_multi 1 1 len 14714390 455126 degree 22 24
+forming addmul_multi 1 2 -1/2
+forming addmul_multi 1 3 len 112 56 degree 7 5
+forming addmul_multi 2 3 len 112 56 degree 7 5
+forming addmul_multi 3 0 len 56 112 degree 5 6
+forming addmul_multi 3 1 len 14714390 455126 degree 22 24
+forming addmul_multi 3 2 -1/2
+forming addmul_multi 3 3 len 112 56 degree 7 5
+forming addmul_multi 4 3 len 112 56 degree 7 5
+forming addmul_multi 5 0 len 56 112 degree 5 6
+forming addmul_multi 5 1 len 14714390 455126 degree 22 24
+forming addmul_multi 5 2 -1/2
+forming addmul_multi 5 3 len 112 56 degree 7 5
+forming addmul_multi 6 3 len 112 56 degree 7 5
+forming addmul_multi 7 0 len 56 112 degree 5 6
+forming addmul_multi 7 1 len 14714390 455126 degree 22 24
+forming addmul_multi 7 2 -1/2
+forming addmul_multi 7 3 len 112 56 degree 7 5
+forming addmul_multi 8 3 len 112 56 degree 7 5
+forming addmul_multi 9 0 len 56 112 degree 5 6
+forming addmul_multi 9 1 len 14714390 455126 degree 22 24
+forming addmul_multi 9 2 -1/2
+forming addmul_multi 9 3 len 112 56 degree 7 5
+forming addmul_multi 10 3 len 112 56 degree 7 5
+forming addmul_multi 11 0 len 56 112 degree 5 6
+forming addmul_multi 11 1 len 14714390 455126 degree 22 24
+forming addmul_multi 11 2 -1/2
+forming addmul_multi 11 3 len 112 56 degree 7 5
+forming addmul_multi 12 3 len 112 56 degree 7 5
+forming addmul_multi 13 0 len 1 degree 1
+forming addmul_multi 13 1 1/2
+forming addmul_multi 13 2 len 7240 1596 degree 12 14
+forming addmul_multi 14 2 len 207200 30856 degree 17 19
+forming addmul_multi 15 2 len 200 56 degree 9 11
+forming addmul_multi 16 2 len 11200 1596 degree 14 16
+forming addmul_multi 17 0 len 1 degree 1
+forming addmul_multi 17 1 1/2
+forming addmul_multi 17 2 len 7240 1596 degree 12 14
+forming addmul_multi 18 2 len 207200 30856 degree 17 19
+forming addmul_multi 19 2 len 200 56 degree 9 11
+forming addmul_multi 20 2 len 11200 1596 degree 14 16
+forming addmul_multi 21 0 len 1 degree 1
+forming addmul_multi 21 1 1/2
+forming addmul_multi 21 2 len 7240 1596 degree 12 14
+forming addmul_multi 22 2 len 207200 30856 degree 17 19
+forming addmul_multi 23 2 len 200 56 degree 9 11
+forming addmul_multi 24 2 len 11200 1596 degree 14 16
+forming addmul_multi 25 0 len 1 degree 1
+forming addmul_multi 25 1 1/2
+forming addmul_multi 25 2 len 7240 1596 degree 12 14
+forming addmul_multi 26 2 len 207200 30856 degree 17 19
+
+
+
+
+sage: F(eq_a.operands()[10].operands()[1].operands()[2].operands()[0])
+fraction must have unit denominator
+Traceback (most recent call last):
+  File "sage/structure/coerce_maps.pyx", line 162, in sage.structure.coerce_maps.DefaultConvertMap_unique._call_ (build/cythonized/sage/structure/coerce_maps.c:4707)
+    return C._element_constructor(x)
+  File "sage/rings/polynomial/multi_polynomial_flint.pyx", line 674, in sage.rings.polynomial.multi_polynomial_flint.MPolynomialRing_flint._element_constructor_ (build/cythonized/sage/rings/polynomial/multi_polynomial_flint.c:5249)
+    return element._polynomial_(self)
+  File "sage/symbolic/expression.pyx", line 7044, in sage.symbolic.expression.Expression._polynomial_ (build/cythonized/sage/symbolic/expression.cpp:40256)
+    return self.polynomial(None, ring=R)
+  File "sage/symbolic/expression.pyx", line 6919, in sage.symbolic.expression.Expression.polynomial (build/cythonized/sage/symbolic/expression.cpp:39784)
+    return polynomial(self, base_ring=base_ring, ring=ring)
+  File "/home/baccala/src/sage-trac2/local/lib/python3.8/site-packages/sage/symbolic/expression_conversions.py", line 1530, in polynomial
+    return converter.ring(res)
+  File "sage/structure/parent.pyx", line 900, in sage.structure.parent.Parent.__call__ (build/cythonized/sage/structure/parent.c:9305)
+    return mor._call_(x)
+  File "sage/categories/map.pyx", line 790, in sage.categories.map.Map._call_ (build/cythonized/sage/categories/map.c:7037)
+    cpdef Element _call_(self, x):
+  File "/home/baccala/src/sage-trac2/local/lib/python3.8/site-packages/sage/rings/fraction_field.py", line 1238, in _call_
+    raise TypeError("fraction must have unit denominator")
