@@ -88,6 +88,12 @@ cdef extern from "flint_wrap.h":
 
     int fmpz_mpoly_equal_si(const fmpz_mpoly_t A, slong c, const fmpz_mpoly_ctx_t ctx);
 
+# Degrees
+
+    slong fmpz_mpoly_degree_si(const fmpz_mpoly_t A, slong var, const fmpz_mpoly_ctx_t ctx);
+
+    slong fmpz_mpoly_total_degree_si(const fmpz_mpoly_t A, const fmpz_mpoly_ctx_t ctx);
+
 
 # Coefficients
 
