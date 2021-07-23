@@ -1554,6 +1554,7 @@ class PolynomialConverter(Converter):
                 for a in ex.operands():
                    add_operators = [b.operator() == add_vararg for b in a.operands()]
                    if add_operators.count(True) == 1 and verbose:
+                       if verbose: print('distterm')
                        # only one factor in the product is a sum, so distribute over it
                        distterm = []
                        for i in range(len(a.operands())):
@@ -1570,6 +1571,7 @@ class PolynomialConverter(Converter):
                                print_status(term)
                            terms.append(term)
                    else:
+                       if verbose: print('standard term')
                        term = []
                        for b in a.operands():
                           #print(type(b), b.operator(), b, file=sys.stderr)
@@ -1584,7 +1586,7 @@ class PolynomialConverter(Converter):
                 if verbose:
                    print("calling addmul_multi")
                 try:
-                   result = self.ring.addmul_multi(terms)
+                   result = self.ring.addmul_multi(terms, verbose=verbose)
                 except Exception as ex:
                    print("Exception in addmul_multi:", ex)
                    raise
