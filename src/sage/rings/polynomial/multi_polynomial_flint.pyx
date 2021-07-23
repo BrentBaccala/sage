@@ -1204,7 +1204,7 @@ cdef class MPolynomial_flint(MPolynomial):
         cdef fmpz_mpoly_struct A = self._poly[0]
         return Integer(A.length)
 
-    def degree(self):
+    def degree(self, x=None):
         """
         Return the degree of this polynomial.
 
@@ -1331,11 +1331,16 @@ cdef class MPolynomial_flint(MPolynomial):
             sage: poly.degree(S.1)
             2
         """
-        #cdef slong deg = fmpz_mpoly_total_degree_si(self._poly, (<MPolynomialRing_flint>self._parent)._ctx)
-        cdef fmpz_mpoly_struct A = self._poly[0]
-        cdef fmpz_mpoly_ctx_struct ctx = (<MPolynomialRing_flint>self._parent)._ctx[0]
-        cdef slong deg = mpoly_total_degree_si(A.exps, A.length, A.bits, ctx.minfo)
-        return Integer(deg)
+        cdef slong deg
+        if x == None:
+            deg = fmpz_mpoly_total_degree_si(self._poly, (<MPolynomialRing_flint>self._parent)._ctx)
+            return Integer(deg)
+        else:
+            for i,gen in enumerate(self.parent().gens()):
+                if gen == x:
+                    deg = fmpz_mpoly_degree_si(self._poly, i, (<MPolynomialRing_flint>self._parent)._ctx)
+                    return Integer(deg)
+            raise TypeError('argument is not a generator')
 
     def dict(self):
         """
