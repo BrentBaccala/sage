@@ -4,6 +4,10 @@ Sparse multivariate polynomials over `\ZZ`, implemented using FLINT
 
 import sys
 
+import itertools
+
+from collections import Counter
+
 from sage.rings.integer_ring import ZZ
 
 from sage.rings.polynomial.polydict cimport ETuple
@@ -728,70 +732,134 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         return p
 
     def addmul_multi(self, terms):
+        """
+        Accepts a list of terms, each of which is a list of factors, and constructs the sum
+        of the products.  The factors can be either polynomials or rational functions in
+        the polynomial ring's fraction field.
+        """
 
         cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
         p._parent = self
 
         #print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
 
+        # Construct a list of polynomials that we will refer to by their index number.
+        # Factoring each polynomial seems a bit too time consuming, so I just ensure
+        # that they're relatively prime.
+
+        # Each list element is either a polynomial or a list of indices indicating that
+        # that polynomial has been factored.
+
+        polys = list()
+
+        # Add a polynomial to the polys list (if needed), ensuring that polys is maintained
+        # relatively prime and return a list of indices into polys that when multiplied
+        # together form the new polynomial.  Returns a list of indices whose polynomials,
+        # when multiplied together, form the input polynomial.
+
+        def add_to_polys(newpoly, startpoly=0):
+            for i in range(startpoly, len(polys)):
+                oldpoly = polys[i]
+                if type(oldpoly) != list:
+                    if oldpoly == newpoly:
+                        return [i]
+                    # XXX optimize this by obtaining cofactors right away
+                    gcd = oldpoly.gcd(newpoly)
+                    if gcd != 1:
+                        if oldpoly != gcd:
+                            # since oldpoly was relatively prime to everything in the list,
+                            # we don't need to check its factors at all; they're relatively prime, too
+                            polys.append(gcd)
+                            polys.append(oldpoly/gcd)
+                            polys[i] = [len(polys) - 1, len(polys) - 2]
+                            if newpoly == gcd:
+                                return [len(polys) - 2]
+                        if newpoly != gcd:
+                            # scan the rest of the list searching for the two new constituent parts,
+                            r1 = add_to_polys(gcd, i+1)
+                            r2 = add_to_polys(newpoly/gcd, i+1)
+                            return r1 + r2
+            polys.append(newpoly)
+            return [len(polys) - 1]
+
+        # Lists of Counters, one pair for each term, mapping polynomial indices
+        # to counts of polynomials in each numerator and denominator
         n = list()
         d = list()
-        dprod = list()
-        term_lengths = list()
 
+        # build a list of lists of indices into polys for numerators and denominators
         for term in terms:
-            term_lengths.append(0)
-            dprod.append(self(1))
+            n.append(Counter())
+            d.append(Counter())
             for factor in term:
                if is_FractionFieldElement(factor):
                    assert(factor.numerator().parent() is self or factor.numerator().parent() is self.base_ring())
                    assert(factor.denominator().parent() is self or factor.denominator().parent() is self.base_ring())
-                   n.append(self(factor.numerator()))
-                   d.append(self(factor.denominator()))
+                   n[-1].update(add_to_polys(self(factor.numerator())))
+                   d[-1].update(add_to_polys(self(factor.denominator())))
                else:
                    assert(factor.parent() is self or factor.parent() is self.base_ring())
-                   n.append(self(factor))
-                   d.append(self(1))
-               term_lengths[-1] += 1
-               dprod[-1] *= d[-1]
-
-
-        #print("fmpz_mpoly_addmul_multi n =", n, file=sys.stderr)
-        #print("fmpz_mpoly_addmul_multi d =", d, file=sys.stderr)
-
-        #print("fmpz_mpoly_addmul_multi computing lcm", term_lengths, file=sys.stderr)
-
-        #lcm = reduce(lambda x,y: x.lcm(y), dprod)
-
-        #print("fmpz_mpoly_addmul_multi lcm =", lcm, file=sys.stderr)
-
-        multiple = list()
-
-        # print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
-
-        num_polys = len(n) * len(term_lengths)
+                   n[-1].update(add_to_polys(self(factor)))
 
         def flatten(t):
             return [item for sublist in t for item in sublist]
 
-        termmap = flatten(map(lambda a: [a[0]]*a[1], enumerate(term_lengths)))
+        # some of the earlier elements in n and d might have "split" into multiple polynomials.  Fix them.
 
-        #print("fmpz_mpoly_addmul_multi termmap =", termmap, file=sys.stderr)
-        assert len(termmap) == len(n)
+        def expand_splits(p):
+            if type(polys[p]) == list:
+                return flatten(map(expand_splits, polys[p]))
+            else:
+                return [p]
+
+        for i in range(len(n)):
+            n[i] = Counter(flatten(map(expand_splits, n[i].elements())))
+            d[i] = Counter(flatten(map(expand_splits, d[i].elements())))
+
+        # construct the LCM of all the denominators, in the form of a list of indices
+
+        def common_elements(lists):
+            common_set = set(itertools.chain.from_iterable(lists))
+            return flatten([[e]*max(map(lambda l: l[e], lists)) for e in common_set])
+
+        #print("fmpz_mpoly_addmul_multi computing lcm", term_lengths, file=sys.stderr)
+
+        lcm = common_elements(d)
+
+        #print("fmpz_mpoly_addmul_multi lcm =", lcm, file=sys.stderr)
+
+        #print("fmpz_mpoly_addmul_multi n =", n, file=sys.stderr)
+        #print("fmpz_mpoly_addmul_multi d =", d, file=sys.stderr)
+
+        # print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
+
+        cdef slong * iptr = <slong *>malloc(sizeof(slong) * len(terms))
+
+        num_polys = 0
+        for t in range(len(terms)):
+           term_len = sum(n[t].values())
+           lcm2 = Counter(lcm)
+           lcm2.subtract(d[t])
+           term_len += sum(lcm2.values())
+           iptr[t] = term_len
+           num_polys += term_len
 
         cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * num_polys)
-        cdef slong * iptr = <slong *>malloc(sizeof(slong) * len(terms))
         cdef MPolynomial_flint ni
         cdef MPolynomial_flint multiplei
+        k = 0
         try:
-         for t in range(len(terms)):
-          iptr[t] = len(n)
-          for i in range(len(n)):
-            if termmap[i] == t:
-               ni = n[i]
-            else:
-               ni = d[i]
-            fptr[t*len(n) + i] = <const fmpz_mpoly_struct *>ni._poly
+            for t in range(len(terms)):
+                for i in n[t].elements():
+                    ni = polys[i]
+                    fptr[k] = <const fmpz_mpoly_struct *>ni._poly
+                    k += 1
+                lcm2 = Counter(lcm)
+                lcm2.subtract(d[t])
+                for i in lcm2.elements():
+                    ni = polys[i]
+                    fptr[k] = <const fmpz_mpoly_struct *>ni._poly
+                    k += 1
         except Exception as ex:
             print(ex, file=sys.stdout)
             raise
@@ -799,10 +867,10 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         #print("fmpz_mpoly_addmul_multi", len(terms), file=sys.stderr)
         fmpz_mpoly_addmul_multi(p._poly, fptr, iptr, len(terms), self._ctx)
 
-        denom = prod(d)
-        if denom == 1:
+        if len(lcm) == 0:
             return p
         else:
+            denom = prod(polys[i] for i in lcm)
             return p/denom
 
     # It is required in cython to redefine __hash__ when __richcmp__ is
