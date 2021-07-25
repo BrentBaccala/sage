@@ -19,10 +19,14 @@ from sage.structure.element cimport Element, CommutativeRingElement
 from sage.structure.richcmp cimport rich_to_bool
 from sage.structure.category_object cimport CategoryObject
 
+from sage.structure.factorization import Factorization
+
 from sage.libs.gmp.mpz cimport mpz_get_ui, mpz_get_si
 
 from sage.libs.flint.mpoly cimport *
+from sage.libs.flint.fmpz cimport *
 from sage.libs.flint.fmpz_mpoly cimport *
+from sage.libs.flint.fmpz_mpoly_factor cimport *
 
 from libc.stdlib cimport malloc, free
 
@@ -1675,6 +1679,23 @@ cdef class MPolynomial_flint(MPolynomial):
             raise RuntimeError("GCD failed")
 
         return p
+
+    def factor(self, proof=None):
+        cdef fmpz_mpoly_factor_t f
+        fmpz_mpoly_factor_init(f, (<MPolynomialRing_flint>self._parent)._ctx)
+        if not fmpz_mpoly_factor(f, self._poly, (<MPolynomialRing_flint>self._parent)._ctx):
+            raise RuntimeError("multivariate factorization failed")
+        factors = []
+        cdef MPolynomial_flint p
+        for i in range(f.num):
+            p = MPolynomial_flint.__new__(MPolynomial_flint)
+            p._parent = self._parent
+            fmpz_mpoly_init(p._poly, (<MPolynomialRing_flint>self._parent)._ctx)
+            # would like to fmpz_mpoly_swap, but this is an inline function in FLINT
+            # and I'm not sure how to import that into Cython
+            fmpz_mpoly_set(p._poly, &f.poly[i], (<MPolynomialRing_flint>self._parent)._ctx)
+            factors.append((p, f.exp[i]))
+        return Factorization(factors, unit=fmpz_get_ui(f.constant))
 
     @coerce_binop
     def lcm(left, right, algorithm=None, **kwds):

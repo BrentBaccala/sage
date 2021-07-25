@@ -117,6 +117,18 @@ cdef extern from "flint_wrap.h":
 
     ctypedef fmpz_mpoly_ctx_struct fmpz_mpoly_ctx_t[1]
 
+# flint/fmpz_mpoly_factor.h
+cdef extern from "flint_wrap.h":
+    ctypedef struct fmpz_mpoly_factor_struct:
+        fmpz_t constant;
+        fmpz_t constant_den;
+        fmpz_mpoly_struct * poly;
+        fmpz * exp;
+        slong num;
+        slong alloc;
+
+    ctypedef fmpz_mpoly_factor_struct fmpz_mpoly_factor_t[1]
+
 # flint/nmod_poly.h:
 cdef extern from "flint_wrap.h":
     ctypedef struct nmod_t:
