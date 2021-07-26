@@ -18,6 +18,7 @@ overridden by subclasses.
 import sys
 import functools
 import operator as _operator
+import traceback
 from sage.rings.rational_field import QQ
 from sage.symbolic.ring import SR
 from sage.functions.all import exp
@@ -1589,6 +1590,7 @@ class PolynomialConverter(Converter):
                    result = self.ring.addmul_multi(terms, verbose=verbose)
                 except Exception as ex:
                    print("Exception in addmul_multi:", ex)
+                   traceback.print_exc()
                    raise
                 check = reduce(_operator.add, map(functools.partial(reduce, _operator.mul), terms))
                 assert check == result
