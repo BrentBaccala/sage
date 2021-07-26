@@ -764,29 +764,12 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         def add_to_polys(newpoly, startpoly=0):
             assert newpoly.parent() is self
             if verbose: print("add_to_polys: adding polynomial of length", len(newpoly))
-            for i in range(startpoly, len(polys)):
-                oldpoly = polys[i]
-                if type(oldpoly) != list:
-                    if oldpoly == newpoly:
-                        return [i]
-                    # XXX optimize this by obtaining cofactors right away
-                    gcd = oldpoly.gcd(newpoly)
-                    if gcd != 1:
-                        if oldpoly != gcd:
-                            # since oldpoly was relatively prime to everything in the list,
-                            # we don't need to check its factors at all; they're relatively prime, too
-                            polys.append(gcd)
-                            polys.append(self(oldpoly/gcd))
-                            polys[i] = [len(polys) - 1, len(polys) - 2]
-                            if newpoly == gcd:
-                                return [len(polys) - 2]
-                        if newpoly != gcd:
-                            # scan the rest of the list searching for the two new constituent parts,
-                            r1 = add_to_polys(gcd, i+1)
-                            r2 = add_to_polys(self(newpoly/gcd), i+1)
-                            return r1 + r2
-            polys.append(newpoly)
-            return [len(polys) - 1]
+            result = []
+            for poly, power in newpoly.factor():
+                if poly not in polys:
+                    polys.append(poly)
+                result += [polys.index(poly)] * power
+            return result
 
         # Lists of Counters, one pair for each term, mapping polynomial indices
         # to counts of polynomials in each numerator and denominator
