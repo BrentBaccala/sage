@@ -1552,6 +1552,18 @@ class PolynomialConverter(Converter):
                         print("forming addmul_multi", len(terms), len(term)-1, "len", len(factor), "degree", factor.degree())
                     else:
                         print("forming addmul_multi", len(terms), len(term)-1, factor)
+                def append_factor(term, factor):
+                   if factor.is_numeric():
+                       term.append(factor.pyobject())
+                   elif factor.operator() == _operator.pow:
+                       if factor.operands()[1] > 1:
+                           term.extend([self(factor.operands()[0])] * factor.operands()[1])
+                       else:
+                           term.append(self(factor))
+                   else:
+                       term.append(self(factor))
+                   if verbose:
+                       print_status(term)
                 for a in ex.operands():
                    add_operators = [b.operator() == add_vararg for b in a.operands()]
                    if add_operators.count(True) == 1 and verbose:
@@ -1560,29 +1572,16 @@ class PolynomialConverter(Converter):
                        distterm = []
                        for i in range(len(a.operands())):
                            if not add_operators[i]:
-                               if a.operands()[i].is_numeric():
-                                   distterm.append(a.operands()[i].pyobject())
-                               else:
-                                   distterm.append(self(a.operands()[i]))
-                               print_status(distterm)
+                               append_factor(distterm, a.operands()[i])
                        for c in a.operands()[add_operators.index(True)].operands():
                            term = distterm.copy()
-                           term.append(self(c))
-                           if verbose:
-                               print_status(term)
+                           append_factor(term, c)
                            terms.append(term)
                    else:
                        if verbose: print('standard term')
                        term = []
                        for b in a.operands():
-                          #print(type(b), b.operator(), b, file=sys.stderr)
-                          if b.is_numeric():
-                              # PolynomialConverter can handle a rational function, but not a rational number
-                              term.append(b.pyobject())
-                          else:
-                              term.append(self(b))
-                          if verbose:
-                              print_status(term)
+                           append_factor(term, b)
                        terms.append(term)
                 if verbose:
                    print("calling addmul_multi")
