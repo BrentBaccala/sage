@@ -695,7 +695,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             fmpz_mpoly_init(p._poly, self._ctx)
             p._parent = self
 
-            fmpz_mpoly_set_ui(p._poly, mpz_get_ui(elementint.value), self._ctx)
+            fmpz_mpoly_set_si(p._poly, mpz_get_si(elementint.value), self._ctx)
 
             return p
         except (TypeError, ValueError):
@@ -1113,7 +1113,7 @@ cdef class MPolynomial_flint(MPolynomial):
 
         leftint = Integer(left)
 
-        fmpz_mpoly_scalar_mul_ui(p._poly, (<MPolynomial_flint>self)._poly, mpz_get_ui(leftint.value), (<MPolynomialRing_flint>self._parent)._ctx)
+        fmpz_mpoly_scalar_mul_si(p._poly, (<MPolynomial_flint>self)._poly, mpz_get_si(leftint.value), (<MPolynomialRing_flint>self._parent)._ctx)
 
         return p
 
@@ -1392,7 +1392,7 @@ cdef class MPolynomial_flint(MPolynomial):
             explist = []
             for j in range(n):
                 explist.append(Integer(exp[j]))
-            result[ETuple(explist)] = Integer(fmpz_mpoly_get_coeff_ui_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx))
+            result[ETuple(explist)] = Integer(fmpz_mpoly_get_coeff_si_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx))
 
         free(exp)
 
@@ -1482,7 +1482,7 @@ cdef class MPolynomial_flint(MPolynomial):
         for i in range(n):
             exp[i] = 0
 
-        cdef ulong coeff = fmpz_mpoly_get_coeff_ui_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx)
+        cdef slong coeff = fmpz_mpoly_get_coeff_si_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx)
 
         free(exp)
 
@@ -1703,7 +1703,7 @@ cdef class MPolynomial_flint(MPolynomial):
             # and I'm not sure how to import that into Cython
             fmpz_mpoly_set(p._poly, &f.poly[i], (<MPolynomialRing_flint>self._parent)._ctx)
             factors.append((p, f.exp[i]))
-        return Factorization(factors, unit=fmpz_get_ui(f.constant))
+        return Factorization(factors, unit=fmpz_get_si(f.constant))
 
     @coerce_binop
     def lcm(left, right, algorithm=None, **kwds):
