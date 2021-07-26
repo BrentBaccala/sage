@@ -782,12 +782,13 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         dc = list()
 
         # build a list of lists of indices into polys for numerators and denominators
-        next_len = 10
+        # next_len = 10
         for term in terms:
             n.append(Counter())
             d.append(Counter())
             nc.append(Integer(1))
             dc.append(Integer(1))
+            if verbose: print("addmul_multi: processing term", len(n))
             for factor in term:
                if is_FractionFieldElement(factor) or factor.parent() is self.base_ring().fraction_field():
                    assert(factor.numerator().parent() is self or factor.numerator().parent() is self.base_ring())
@@ -795,11 +796,11 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                    l,u = add_to_polys(self(factor.numerator()))
                    n[-1].update(l)
                    nc[-1] *= u
-                   if verbose: print("added polynomial to numerator", len(n), n[-1], nc[-1])
+                   # if verbose: print("added polynomial to numerator", len(n), n[-1], nc[-1])
                    l,u = add_to_polys(self(factor.denominator()))
                    d[-1].update(l)
                    dc[-1] *= u
-                   if verbose: print("added polynomial to denominator", len(d), d[-1], dc[-1])
+                   #if verbose: print("added polynomial to denominator", len(d), d[-1], dc[-1])
                else:
                    if not (factor.parent() is self or factor.parent() is self.base_ring()):
                        print("factor", factor, factor.parent())
@@ -807,10 +808,10 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                    l,u = add_to_polys(self(factor))
                    n[-1].update(l)
                    nc[-1] *= u
-                   if verbose: print("added polynomial to numerator", len(n), n[-1], nc[-1])
-               if verbose and len(polys) >= next_len:
-                   next_len += 10
-                   print("len(polys) =", len(polys))
+                   #if verbose: print("added polynomial to numerator", len(n), n[-1], nc[-1])
+               #if verbose and len(polys) >= next_len:
+               #    next_len += 10
+               #    print("len(polys) =", len(polys))
 
         def flatten(t):
             return [item for sublist in t for item in sublist]
