@@ -1051,13 +1051,7 @@ cdef class MPolynomial_flint(MPolynomial):
         """
         assert (<MPolynomial_flint>left)._parent == (<MPolynomial_flint>right)._parent
 
-        equal = fmpz_mpoly_equal((<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx)
-
-        if equal:
-            return rich_to_bool(op, 0)
-        else:
-            # XXX wrong
-            return rich_to_bool(op, 1)
+        return rich_to_bool(op, fmpz_mpoly_cmp((<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx))
 
     cpdef _add_(left, right):
         """
