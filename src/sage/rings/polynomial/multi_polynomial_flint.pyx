@@ -971,6 +971,9 @@ cdef class MPolynomial_flint(MPolynomial):
     A multivariate polynomial implemented using FLINT.
     """
 
+    def __cinit__(self):
+        fmpz_mpoly_init(self._poly, NULL)
+
     def __init__(self, MPolynomialRing_flint parent):
         """
         Construct a zero element in parent.
@@ -982,7 +985,7 @@ cdef class MPolynomial_flint(MPolynomial):
             sage: MPolynomial_libsingular(P)
             0
         """
-        fmpz_mpoly_init(self._poly, parent._ctx)
+        # fmpz_mpoly_init(self._poly, parent._ctx)
         
         self._parent = parent
         self._ctx = & parent._ctx[0]
