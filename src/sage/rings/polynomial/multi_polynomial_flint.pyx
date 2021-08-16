@@ -861,15 +861,25 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         cdef MPolynomial_flint ni
         constants = []
         k = 0
+        maxdeg = 0
+        vardeg = {var:0 for var in self.gens()}
         try:
             for t in range(len(terms)):
+                thisdeg = 0
+                thisvardeg = {var:0 for var in self.gens()}
                 for i in n[t].elements():
+                    thisdeg += polys[i].degree()
+                    for var in self.gens():
+                        thisvardeg[var] += polys[i].degree(var)
                     ni = polys[i]
                     fptr[k] = <const fmpz_mpoly_struct *>ni._poly
                     k += 1
                 lcm2 = Counter(lcm)
                 lcm2.subtract(d[t])
                 for i in lcm2.elements():
+                    thisdeg += polys[i].degree()
+                    for var in self.gens():
+                        thisvardeg[var] += polys[i].degree(var)
                     ni = polys[i]
                     fptr[k] = <const fmpz_mpoly_struct *>ni._poly
                     k += 1
@@ -882,11 +892,20 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                     #if verbose: print("constant ni", ni)
                     fptr[k] = <const fmpz_mpoly_struct *>ni._poly
                     k += 1
+                if thisdeg > maxdeg:
+                    maxdeg = thisdeg
+                for var in self.gens():
+                    if thisvardeg[var] > vardeg[var]:
+                        vardeg[var] = thisvardeg[var]
         except Exception as ex:
             print(ex, file=sys.stdout)
             raise
 
-        if verbose: print("fmpz_mpoly_addmul_multi", len(terms), file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi maxlen =", max(len(p) for p in polys), file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi maxdeg =", maxdeg, file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi vardeg =", vardeg, file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
+
         fmpz_mpoly_addmul_multi(p._poly, fptr, iptr, len(terms), self._ctx)
 
         if len(lcm) == 0:
