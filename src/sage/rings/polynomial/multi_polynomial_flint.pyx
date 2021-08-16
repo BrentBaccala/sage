@@ -816,21 +816,13 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                #if verbose and len(polys) >= next_len:
                #    next_len += 10
                #    print("len(polys) =", len(polys))
+            common = n[-1] & d[-1]
+            if len(common) > 0:
+               n[-1].subtract(common)
+               d[-1].subtract(common)
 
         def flatten(t):
             return [item for sublist in t for item in sublist]
-
-        # some of the earlier elements in n and d might have "split" into multiple polynomials.  Fix them.
-
-        def expand_splits(p):
-            if type(polys[p]) == list:
-                return flatten(map(expand_splits, polys[p]))
-            else:
-                return [p]
-
-        for i in range(len(n)):
-            n[i] = Counter(flatten(map(expand_splits, n[i].elements())))
-            d[i] = Counter(flatten(map(expand_splits, d[i].elements())))
 
         # construct the LCM of all the denominators, in the form of a list of indices
 
