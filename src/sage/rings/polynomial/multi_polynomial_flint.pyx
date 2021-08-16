@@ -144,10 +144,14 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if base_ring != ZZ:
             raise NotImplementedError("FLINT base_ring must be ZZ")
 
-        if order != 'degrevlex':
-            raise NotImplementedError("FLINT orderings must be degrevlex")
-
-        fmpz_mpoly_ctx_init(self._ctx, n, ORD_DEGREVLEX);
+        if order == 'degrevlex':
+            fmpz_mpoly_ctx_init(self._ctx, n, ORD_DEGREVLEX)
+        elif order == 'deglex':
+            fmpz_mpoly_ctx_init(self._ctx, n, ORD_DEGLEX)
+        elif order == 'lex':
+            fmpz_mpoly_ctx_init(self._ctx, n, ORD_LEX)
+        else:
+            raise NotImplementedError("FLINT orderings must be degrevlex, deglex or lex")
 
         self._cnames = <const char **>malloc(sizeof(char *) * n)
         self._bnames = []
