@@ -319,6 +319,8 @@ cdef extern from "flint_wrap.h":
 
     void fmpz_mpoly_addmul_multi(fmpz_mpoly_t A, const fmpz_mpoly_struct ** Blist, const slong * Blengths, const slong Bnumseq, const fmpz_mpoly_ctx_t ctx);
 
+    void fmpz_mpoly_addmul_multi_threaded(fmpz_mpoly_t A, const fmpz_mpoly_struct ** Blist, const slong * Blengths, const slong Bnumseq, const fmpz_mpoly_ctx_t ctx);
+
 # Powering
 
     int fmpz_mpoly_pow_fmpz(fmpz_mpoly_t A, const fmpz_mpoly_t B, const fmpz_t k, const fmpz_mpoly_ctx_t ctx);
