@@ -48,10 +48,19 @@ cdef ulong radii_blocks = 0
 
 cdef ulong * last_exp = NULL
 
+cdef int max_vdeg = 0
+cdef int max_cdeg = 0
+
+# Raising a Python exception in a Cython callback from FLINT does nothing other than print a message,
+# so deal with fatal errors by generating a seg fault, which will be caught by gdb if running with "sage --gdb"
+cdef void raise_SIGSEGV():
+    junk = (<slong *>0)[0]
+
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
+    global max_cdeg, max_vdeg
 
     # Check to see if monomial exponents are ordered correctly
     if last_exp == NULL:
@@ -59,27 +68,40 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong 
         mpoly_monomial_set(last_exp, exp, 17)
     else:
         if mpoly_monomial_lt_nomask(last_exp, exp, 17):
-            junk = (<slong *>0)[0]
+            raise_SIGSEGV()
         else:
             mpoly_monomial_set(last_exp, exp, 17)
+
+    cdef unsigned char * exps = <unsigned char *> exp
+    cdef int vdeg = 0
+    cdef int cdeg = 0
+    for i in range(12):
+        vdeg += exps[129-i]
+    for i in range(12,130):
+        cdeg += exps[129-i]
 
     cdef slong current_radii = (exp[15] >> 56) | (exp[16] << 8)
     if (current_radii != last_radii):
         if (last_radii != 0) and (current_radii > last_radii):
-            current_radii = (<slong *>0)[0]
+            raise_SIGSEGV()
         last_radii = current_radii
         radii_blocks += 1
         if last_radii_count > max_radii_count:
             max_radii_count = last_radii_count
-        exp1 = exp[16] >> 8
-        exp2 = exp[16] & 0xff
-        exp3 = exp[15] >> 56
-        status_string = "{},{},{} {}/{}".format(exp1, exp2, exp3, radii_blocks, max_radii_count)
-        status_string_encode = status_string.encode()
-        status_string_ptr = status_string_encode
         last_radii_count = 1
     else:
         last_radii_count += 1
+
+    if (last_radii_count == 1) or (vdeg > max_vdeg) or (cdeg > max_cdeg):
+        if vdeg > max_vdeg: max_vdeg = vdeg
+        if cdeg > max_cdeg: max_cdeg = cdeg
+        exp1 = exps[129]
+        exp2 = exps[128]
+        exp3 = exps[127]
+        status_string = "{},{},{} {}/{} vdeg={} cdeg={}".format(exp1, exp2, exp3, radii_blocks, max_radii_count, max_vdeg, max_cdeg)
+        status_string_encode = status_string.encode()
+        status_string_ptr = status_string_encode
+
     return status_string_ptr
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
