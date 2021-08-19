@@ -1591,8 +1591,8 @@ class PolynomialConverter(Converter):
                    print("Exception in addmul_multi:", ex)
                    traceback.print_exc()
                    raise
-                check = reduce(_operator.add, map(functools.partial(reduce, _operator.mul), terms))
-                assert check == result
+                #check = reduce(_operator.add, map(functools.partial(reduce, _operator.mul), terms))
+                #assert check == result
                 return result
         elif operator == mul_vararg:
             operator = _operator.mul
