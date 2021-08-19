@@ -1,6 +1,16 @@
 
 from sage.libs.flint.types cimport *
 
+cdef inline void mpoly_monomial_set(ulong * exp2, const ulong * exp3, slong N):
+    for i in range(N):
+        exp2[i] = exp3[i]
+
+cdef inline int mpoly_monomial_lt_nomask(ulong * exp2, const ulong * exp3, slong N):
+    for i in range(N-1, -1, -1):
+        if exp2[i] != exp3[i]:
+            return exp2[i] < exp3[i]
+    return 0
+
 # flint/mpoly.h
 cdef extern from "flint_wrap.h":
 
