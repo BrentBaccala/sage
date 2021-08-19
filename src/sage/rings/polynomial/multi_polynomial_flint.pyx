@@ -37,6 +37,51 @@ from sage.cpython.string cimport char_to_str, str_to_bytes
 
 from functools import reduce
 
+status_string = ""
+status_string_encode = status_string.encode()
+cdef char * status_string_ptr = status_string_encode
+
+cdef ulong last_radii = 0
+cdef ulong last_radii_count = 0
+cdef ulong max_radii_count = 0
+cdef ulong radii_blocks = 0
+
+cdef ulong * last_exp = NULL
+
+cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    global status_string, status_string_encode, status_string_ptr
+    global last_radii, last_radii_count, radii_blocks, max_radii_count
+    global last_exp
+
+    # Check to see if monomial exponents are ordered correctly
+    if last_exp == NULL:
+        last_exp = <ulong *>malloc(17 * sizeof(ulong))
+        mpoly_monomial_set(last_exp, exp, 17)
+    else:
+        if mpoly_monomial_lt_nomask(last_exp, exp, 17):
+            junk = (<slong *>0)[0]
+        else:
+            mpoly_monomial_set(last_exp, exp, 17)
+
+    cdef slong current_radii = (exp[15] >> 56) | (exp[16] << 8)
+    if (current_radii != last_radii):
+        if (last_radii != 0) and (current_radii > last_radii):
+            current_radii = (<slong *>0)[0]
+        last_radii = current_radii
+        radii_blocks += 1
+        if last_radii_count > max_radii_count:
+            max_radii_count = last_radii_count
+        exp1 = exp[16] >> 8
+        exp2 = exp[16] & 0xff
+        exp3 = exp[15] >> 56
+        status_string = "{},{},{} {}/{}".format(exp1, exp2, exp3, radii_blocks, max_radii_count)
+        status_string_encode = status_string.encode()
+        status_string_ptr = status_string_encode
+        last_radii_count = 1
+    else:
+        last_radii_count += 1
+    return status_string_ptr
+
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
     def __init__(self, base_ring, n, names, order='degrevlex'):
@@ -840,6 +885,11 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         #print("fmpz_mpoly_addmul_multi n =", n, file=sys.stderr)
         #print("fmpz_mpoly_addmul_multi d =", d, file=sys.stderr)
 
+        if verbose:
+            sys.modules['__main__'].addmul_lcm = lcm
+            sys.modules['__main__'].polys = polys
+            #raise Exception("addmul")
+
         if verbose: print("fmpz_mpoly_addmul_multi array building", file=sys.stderr)
 
         cdef slong * iptr = <slong *>malloc(sizeof(slong) * len(terms))
@@ -906,8 +956,11 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if verbose: print("fmpz_mpoly_addmul_multi vardeg =", vardeg, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
-        fmpz_mpoly_addmul_multi(p._poly, fptr, iptr, len(terms), self._ctx)
+        if verbose: p._poly.output_function = output_function2
 
+        fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
+
+        if verbose: raise Exception("fmpz_mpoly_addmul_multi")
         if len(lcm) == 0:
             return p
         else:
