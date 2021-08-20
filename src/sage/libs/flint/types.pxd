@@ -103,21 +103,19 @@ cdef extern from "flint_wrap.h":
 
 # flint/fmpz_mpoly.h:
 cdef extern from "flint_wrap.h":
-
-    ctypedef struct fmpz_mpoly_ctx_struct:
-        mpoly_ctx_t minfo
-
-    ctypedef fmpz_mpoly_ctx_struct fmpz_mpoly_ctx_t[1]
-
     ctypedef struct fmpz_mpoly_struct:
         fmpz * coeffs
         ulong * exps
         slong alloc
         slong length
         flint_bitcnt_t bits
-        const char * (* output_function)(fmpz_mpoly_struct *, slong, ulong *, fmpz_t, const fmpz_mpoly_ctx_struct *)
 
     ctypedef fmpz_mpoly_struct fmpz_mpoly_t[1]
+
+    ctypedef struct fmpz_mpoly_ctx_struct:
+        mpoly_ctx_t minfo
+
+    ctypedef fmpz_mpoly_ctx_struct fmpz_mpoly_ctx_t[1]
 
 # flint/fmpz_mpoly_factor.h
 cdef extern from "flint_wrap.h":
