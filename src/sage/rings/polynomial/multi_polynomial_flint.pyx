@@ -16,7 +16,7 @@ from sage.rings.fraction_field_element import is_FractionFieldElement
 
 from sage.structure.element import coerce_binop
 from sage.structure.element cimport Element, CommutativeRingElement
-from sage.structure.richcmp cimport rich_to_bool
+from sage.structure.richcmp import rich_to_bool
 from sage.structure.category_object cimport CategoryObject
 
 from sage.structure.factorization import Factorization
