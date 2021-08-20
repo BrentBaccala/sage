@@ -978,9 +978,10 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if verbose: print("fmpz_mpoly_addmul_multi vardeg =", vardeg, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
-        if verbose: p._poly.output_function = output_function2
-
-        fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
+        if verbose:
+            fmpz_mpoly_addmul_multi_threaded_abstract(p._poly, fptr, iptr, len(terms), self._ctx, output_function2)
+        else:
+            fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
 
         if verbose: raise Exception("fmpz_mpoly_addmul_multi")
         if len(lcm) == 0:
