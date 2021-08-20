@@ -56,6 +56,76 @@ cdef int max_cdeg = 0
 cdef void raise_SIGSEGV():
     junk = (<slong *>0)[0]
 
+# Functions to encode and decode deglex exponents
+
+cdef ulong choose_with_replacement(ulong setsize, ulong num):
+    #return binomial(setsize + num - 1, num)
+    #return prod(range(setsize + num - 1, num)) / prod(setsize - 1)
+    cdef ulong retval = 1
+    cdef ulong i = setsize + num - 1
+    while (i > num):
+        retval *= i
+        i -= 1
+    while (num > 1):
+        retval /= num
+        num -= 1
+    return retval
+
+cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
+    cdef ulong delta = 0
+    cdef ulong i
+    cdef ulong j
+    for i in range(len_exps): delta += exps[i]
+    cdef ulong retval = 0
+    for i in range(0, delta): retval += choose_with_replacement(len_exps, i)
+    cdef ulong d = delta
+    for i in range(0,len_exps-1):
+        for j in range(0, exps[i]): retval += choose_with_replacement(len_exps-i-1, d-j)
+        d -= exps[i]
+    return retval
+
+cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps):
+    cdef ulong total_degree = 0
+    cdef ulong choose
+    #while ind >= choose_with_replacement(len_exps, total_degree):
+    #    ind -= choose_with_replacement(len_exps, total_degree)
+    #    total_degree += 1
+    while True:
+        choose = choose_with_replacement(len_exps, total_degree)
+        if ind < choose: break
+        ind -= choose
+        total_degree += 1
+    cdef ulong d = total_degree
+    cdef unsigned char this_exp
+    cdef int i
+    for i in range(0, len_exps-1):
+        this_exp = 0
+        #while ind >= choose_with_replacement(len_exps-i-1, d-this_exp):
+        #    ind -= choose_with_replacement(len_exps-i-1, d-this_exp)
+        #    this_exp += 1
+        while True:
+            choose = choose_with_replacement(len_exps-i-1, d-this_exp)
+            if ind < choose: break
+            ind -= choose
+            this_exp += 1
+        exps[i] = this_exp
+        d -= this_exp
+    exps[len_exps-1] = d
+
+cdef ulong * output_buffer = NULL
+cdef ulong output_buffer_size = 0
+cdef ulong output_count = 0
+
+cdef const char * encode_to_buffer(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    global output_buffer, output_count
+    cdef unsigned char * exps = <unsigned char *> exp
+    cdef ulong v = encode_deglex(exps, 118)
+    cdef ulong c = encode_deglex(exps + 118, 12)
+    output_buffer[3*output_count] = v
+    output_buffer[3*output_count+1] = c
+    output_buffer[3*output_count+2] = (<ulong *>coeff)[0]
+    output_count += 1
+
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
