@@ -1,6 +1,25 @@
 
 from sage.libs.flint.types cimport *
 
+
+#    number of words used by an exponent vector packed into "bits" bits:
+#    we must have either
+#        (mp) bits > FLINT_BITS and bits % FLINT_BITS == 0, or
+#        (sp) MPOLY_MIN_BITS <= bits <= FLINT_BITS
+
+cdef inline slong mpoly_words_per_exp_sp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+    return mctx.lut_words_per_exp[bits - 1];
+
+cdef inline slong mpoly_words_per_exp_mp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+    return bits/FLINT_BITS*mctx.nfields;
+
+cdef inline slong mpoly_words_per_exp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+    if (bits <= FLINT_BITS):
+        return mpoly_words_per_exp_sp(bits, mctx)
+    else:
+        return mpoly_words_per_exp_mp(bits, mctx)
+
+
 cdef inline void mpoly_monomial_set(ulong * exp2, const ulong * exp3, slong N):
     for i in range(N):
         exp2[i] = exp3[i]
@@ -14,7 +33,9 @@ cdef inline int mpoly_monomial_lt_nomask(ulong * exp2, const ulong * exp3, slong
 # flint/mpoly.h
 cdef extern from "flint_wrap.h":
 
-    ctypedef enum ordering_t: ORD_LEX, ORD_DEGLEX, ORD_DEGREVLEX
+    # Now in types.pxd
+
+    #ctypedef enum ordering_t: ORD_LEX, ORD_DEGLEX, ORD_DEGREVLEX
 
 # context
 

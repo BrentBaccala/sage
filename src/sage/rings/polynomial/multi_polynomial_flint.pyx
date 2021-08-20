@@ -132,25 +132,28 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong 
     global last_exp
     global max_cdeg, max_vdeg
 
+    cdef slong N = mpoly_words_per_exp(poly.bits, ctx.minfo)
+
     # Check to see if monomial exponents are ordered correctly
     if last_exp == NULL:
-        last_exp = <ulong *>malloc(17 * sizeof(ulong))
-        mpoly_monomial_set(last_exp, exp, 17)
+        last_exp = <ulong *>malloc(N * sizeof(ulong))
+        mpoly_monomial_set(last_exp, exp, N)
     else:
-        if mpoly_monomial_lt_nomask(last_exp, exp, 17):
+        if mpoly_monomial_lt_nomask(last_exp, exp, N):
             raise_SIGSEGV()
         else:
-            mpoly_monomial_set(last_exp, exp, 17)
+            mpoly_monomial_set(last_exp, exp, N)
 
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int vdeg = 0
     cdef int cdeg = 0
+    cdef int i
     for i in range(12):
         vdeg += exps[129-i]
     for i in range(12,130):
         cdeg += exps[129-i]
 
-    cdef slong current_radii = (exp[15] >> 56) | (exp[16] << 8)
+    cdef ulong current_radii = (exp[15] >> 56) | (exp[16] << 8)
     if (current_radii != last_radii):
         if (last_radii != 0) and (current_radii > last_radii):
             raise_SIGSEGV()

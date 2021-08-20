@@ -24,7 +24,7 @@ ctypedef mp_limb_signed_t slong
 # flint/flint.h:
 cdef extern from "flint_wrap.h":
     ctypedef void* flint_rand_t
-    cdef long FLINT_BITS
+    cdef const long FLINT_BITS = 64
     cdef long FLINT_D_BITS
     ctypedef ulong flint_bitcnt_t
 
@@ -96,8 +96,17 @@ cdef extern from "flint_wrap.h":
 
 # flint/mpoly.h:
 cdef extern from "flint_wrap.h":
+
+    ctypedef enum ordering_t: ORD_LEX, ORD_DEGLEX, ORD_DEGREVLEX
+
     ctypedef struct mpoly_ctx_struct:
-        pass
+        slong nvars
+        slong nfields
+        ordering_t ord
+        int deg
+        int rev
+        slong lut_words_per_exp[FLINT_BITS]
+        unsigned char lut_fix_bits[FLINT_BITS]
 
     ctypedef mpoly_ctx_struct mpoly_ctx_t[1]
 
