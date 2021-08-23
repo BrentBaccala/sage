@@ -28,7 +28,7 @@ from sage.libs.flint.fmpz cimport *
 from sage.libs.flint.fmpz_mpoly cimport *
 from sage.libs.flint.fmpz_mpoly_factor cimport *
 
-from libc.stdlib cimport malloc, free
+from libc.stdlib cimport malloc, realloc, free
 
 from sage.misc.sage_eval import sage_eval
 from sage.misc.misc_c import prod
@@ -57,13 +57,18 @@ cdef void raise_SIGSEGV():
     junk = (<slong *>0)[0]
 
 # Functions to encode and decode deglex exponents
+#
+# No attempt is made to detect integer overflow
+# choose_with_replacement could be replaced with a lookup table for speed
+# The loops in decode_deglex (maybe encode_deglex, too) could be replaced with lookup tables for speed
 
 cdef ulong choose_with_replacement(ulong setsize, ulong num):
     #return binomial(setsize + num - 1, num)
-    #return prod(range(setsize + num - 1, num)) / prod(setsize - 1)
+    #return prod(range(setsize + num - 1, num)) / prod(range(setsize - 1, 0))
+    #    or prod(range(setsize + num - 1, setsize - 1)) / prod(range(num, 0))
     cdef ulong retval = 1
     cdef ulong i = setsize + num - 1
-    while (i > num):
+    while (i > setsize - 1):
         retval *= i
         i -= 1
     while (num > 1):
@@ -112,21 +117,56 @@ cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps):
         d -= this_exp
     exps[len_exps-1] = d
 
+# Encode/decode to/from a single global buffer
+
 cdef ulong * output_buffer = NULL
 cdef ulong output_buffer_size = 0
 cdef ulong output_count = 0
 
-cdef const char * encode_to_buffer(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global output_buffer, output_count
     cdef unsigned char * exps = <unsigned char *> exp
     cdef ulong v = encode_deglex(exps, 118)
     cdef ulong c = encode_deglex(exps + 118, 12)
+    if index == 0:
+        if output_buffer != NULL:
+            free(output_buffer)
+        output_buffer_size = 1024
+        output_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        output_count = 0
+    if index >= output_buffer_size:
+        output_buffer_size += 1024
+        output_buffer = <ulong *>realloc(output_buffer, 3 * output_buffer_size * sizeof(ulong))
     output_buffer[3*output_count] = v
     output_buffer[3*output_count+1] = c
     output_buffer[3*output_count+2] = (<ulong *>coeff)[0]
     output_count += 1
 
-cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void decode_from_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    cdef unsigned char * exps = <unsigned char *> exp
+    if index >= output_count:
+        fmpz_set_ui(coeff, 0)
+    else:
+        decode_deglex(output_buffer[3*index], exps, 118)
+        decode_deglex(output_buffer[3*index+1], exps+ 118, 12)
+        fmpz_set_ui(coeff, output_buffer[3*index+2])
+
+def copy_to_buffer(p):
+    cdef MPolynomial_flint np = p
+    cdef MPolynomialRing_flint parent = p.parent()
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    fptr[0] = <const fmpz_mpoly_struct *>np._poly
+    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+
+def copy_from_buffer(R):
+    cdef MPolynomialRing_flint parent = R
+    cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
+    np._parent = R
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_buffer, NULL)
+    return np
+
+cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
