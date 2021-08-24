@@ -124,7 +124,7 @@ cdef ulong output_buffer_size = 0
 cdef ulong output_count = 0
 
 cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    global output_buffer, output_count
+    global output_buffer, output_count, output_buffer_size
     cdef unsigned char * exps = <unsigned char *> exp
     cdef ulong v = encode_deglex(exps, 118)
     cdef ulong c = encode_deglex(exps + 118, 12)
