@@ -126,17 +126,21 @@ cdef ulong output_count = 0
 cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global output_buffer, output_count, output_buffer_size
     cdef unsigned char * exps = <unsigned char *> exp
-    cdef ulong v = encode_deglex(exps, 118)
-    cdef ulong c = encode_deglex(exps + 118, 12)
+    cdef ulong v
+    cdef ulong c
     if index == 0:
         if output_buffer != NULL:
             free(output_buffer)
         output_buffer_size = 1024
         output_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
         output_count = 0
+    if index == -1:
+        return
     if index >= output_buffer_size:
         output_buffer_size += 1024
         output_buffer = <ulong *>realloc(output_buffer, 3 * output_buffer_size * sizeof(ulong))
+    v = encode_deglex(exps, 118)
+    c = encode_deglex(exps + 118, 12)
     output_buffer[3*output_count] = v
     output_buffer[3*output_count+1] = c
     output_buffer[3*output_count+2] = (<ulong *>coeff)[0]
@@ -171,6 +175,9 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
     global max_cdeg, max_vdeg
+
+    if index == -1:
+        return status_string_ptr
 
     cdef slong N = mpoly_words_per_exp(poly.bits, ctx.minfo)
 
