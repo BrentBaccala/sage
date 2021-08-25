@@ -29,6 +29,9 @@ from sage.libs.flint.fmpz_mpoly cimport *
 from sage.libs.flint.fmpz_mpoly_factor cimport *
 
 from libc.stdlib cimport malloc, realloc, free
+from posix.fcntl cimport creat, open, O_RDONLY
+from posix.unistd cimport read, write, close
+from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH, S_IWOTH
 
 from sage.misc.sage_eval import sage_eval
 from sage.misc.misc_c import prod
@@ -171,6 +174,108 @@ def copy_from_buffer(R):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_buffer, NULL)
     return np
+
+# Encode/decode to/from a file
+#
+# Use stdio functions because they're faster, and because they don't require us to hold
+# the GIL, so they can be used multi-threaded.
+#
+# Global variables, so we can only write to one file at a time :-(
+
+file_output_filename = "bigflint.out"
+cdef int file_output_fd = -1
+cdef ulong * file_output_buffer = NULL
+cdef ulong file_output_buffer_size = 1024
+cdef ulong file_output_count = 0
+
+cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    global file_output_filename, file_output_fd, file_output_buffer, file_output_count, file_output_buffer_size
+    cdef unsigned char * exps = <unsigned char *> exp
+    cdef ulong v
+    cdef ulong c
+    if index == 0:
+        if file_output_fd != -1:
+            close(file_output_fd)
+        if file_output_buffer != NULL:
+            free(file_output_buffer)
+        file_output_fd = creat(file_output_filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+        file_output_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        file_output_count = 0
+    elif index == -1:
+        if file_output_count != 0:
+            write(file_output_fd, file_output_buffer, 3 * file_output_count * sizeof(ulong))
+        close(file_output_fd)
+        file_output_fd = -1
+        free(file_output_buffer)
+        file_output_buffer = NULL
+        return
+    elif index % file_output_buffer_size == 0:
+        write(file_output_fd, file_output_buffer, 3 * 1024 * sizeof(ulong))
+        file_output_count = 0
+    v = encode_deglex(exps, 118)
+    c = encode_deglex(exps + 118, 12)
+    file_output_buffer[3*file_output_count] = v
+    file_output_buffer[3*file_output_count+1] = c
+    file_output_buffer[3*file_output_count+2] = (<ulong *>coeff)[0]
+    file_output_count += 1
+
+file_input_filename = "bigflint.out"
+cdef int file_input_fd = -1
+cdef ulong * file_input_buffer = NULL
+cdef ulong file_input_buffer_size = 1024
+cdef ulong file_input_count = 0
+cdef ulong file_input_start = 0
+
+cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    global file_input_filename, file_input_fd, file_input_buffer, file_input_count, file_input_start, file_input_buffer_size
+    cdef unsigned char * exps = <unsigned char *> exp
+    if index == 0:
+        if file_input_fd != -1:
+            close(file_input_fd)
+        if file_input_buffer != NULL:
+            free(file_input_buffer)
+        file_input_fd = open(file_input_filename.encode(), O_RDONLY)
+        file_input_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        file_input_start = 0
+        file_input_count = 0
+
+    if index == file_input_count:
+        file_input_start = file_input_count
+        file_input_count += read(file_input_fd, file_input_buffer, 3 * 1024 * sizeof(ulong)) / (3 * sizeof(ulong))
+
+    if index >= file_input_count:
+        fmpz_set_ui(coeff, 0)
+        if file_input_fd != -1:
+            close(file_input_fd)
+        if file_input_buffer != NULL:
+            free(file_input_buffer)
+        file_input_fd = -1
+        file_input_buffer = NULL
+    else:
+        # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
+        exp[16] = 0
+        decode_deglex(file_input_buffer[3*(index-file_input_start)], exps, 118)
+        decode_deglex(file_input_buffer[3*(index-file_input_start)+1], exps+ 118, 12)
+        fmpz_set_ui(coeff, file_input_buffer[3*(index-file_input_start)+2])
+
+def copy_to_file(p, filename="bigflint.out"):
+    cdef MPolynomial_flint np = p
+    cdef MPolynomialRing_flint parent = p.parent()
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    fptr[0] = <const fmpz_mpoly_struct *>np._poly
+    file_output_filename = filename
+    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
+
+def copy_from_file(R, filename="bigflint.out"):
+    cdef MPolynomialRing_flint parent = R
+    cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
+    np._parent = R
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    file_input_filename = filename
+    fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
+    return np
+
+
 
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
