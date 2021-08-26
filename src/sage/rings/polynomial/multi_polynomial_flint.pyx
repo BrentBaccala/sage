@@ -287,7 +287,7 @@ cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong 
         exp[16] = 0
         decode_deglex(file_input_buffer[3*(index-file_input_start)], exps, 118)
         decode_deglex(file_input_buffer[3*(index-file_input_start)+1], exps+ 118, 12)
-        fmpz_set_ui(coeff, file_input_buffer[3*(index-file_input_start)+2])
+        fmpz_set_si(coeff, file_input_buffer[3*(index-file_input_start)+2])
 
 def copy_to_file(p, filename="bigflint.out"):
     cdef MPolynomial_flint np = p
