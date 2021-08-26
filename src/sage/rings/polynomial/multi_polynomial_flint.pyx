@@ -29,6 +29,7 @@ from sage.libs.flint.fmpz_mpoly cimport *
 from sage.libs.flint.fmpz_mpoly_factor cimport *
 
 from libc.stdlib cimport malloc, realloc, free
+from libc.signal cimport raise_, SIGSEGV
 from posix.fcntl cimport creat, open, O_RDONLY
 from posix.unistd cimport read, write, close
 from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH, S_IWOTH
@@ -56,8 +57,9 @@ cdef int max_cdeg = 0
 
 # Raising a Python exception in a Cython callback from FLINT does nothing other than print a message,
 # so deal with fatal errors by generating a seg fault, which will be caught by gdb if running with "sage --gdb"
+
 cdef void raise_SIGSEGV():
-    junk = (<slong *>0)[0]
+    raise_(SIGSEGV)
 
 # Functions to encode and decode deglex exponents
 #
