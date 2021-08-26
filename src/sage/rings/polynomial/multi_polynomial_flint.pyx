@@ -117,15 +117,20 @@ cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
     for i in range(0, delta):
         choose = choose_with_replacement(len_exps, i)
         if choose == UINT64_MAX: raise_(SIGSEGV)
+        if (UINT64_MAX - choose < retval): raise_(SIGSEGV)
         retval += choose
     cdef ulong d = delta
     for i in range(0,len_exps-1):
         for j in range(0, exps[i]):
             choose = choose_with_replacement(len_exps-i-1, d-j)
             if choose == UINT64_MAX: raise_(SIGSEGV)
+            if (UINT64_MAX - choose < retval): raise_(SIGSEGV)
             retval += choose
         d -= exps[i]
     return retval
+
+# decoding never raises SIGSEGV because a number between 0 and UINT64_MAX
+# will always decode to some exponent vector
 
 cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps):
     cdef ulong total_degree = 0
