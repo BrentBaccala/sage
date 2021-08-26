@@ -29,6 +29,7 @@ from sage.libs.flint.fmpz_mpoly cimport *
 from sage.libs.flint.fmpz_mpoly_factor cimport *
 
 from libc.stdlib cimport malloc, realloc, free
+from libc.stdint cimport UINT64_MAX
 from libc.signal cimport raise_, SIGSEGV
 from posix.fcntl cimport creat, open, O_RDONLY
 from posix.unistd cimport read, write, close
@@ -99,21 +100,30 @@ cpdef ulong choose_with_replacement(ulong setsize, ulong num):
             try:
                 choose_with_replacement_table[setsize].table[size] = <ulong> value
             except OverflowError:
-                choose_with_replacement_table[setsize].table[size] = 0xffffffffffffffff
+                choose_with_replacement_table[setsize].table[size] = UINT64_MAX
             choose_with_replacement_table[setsize].size += 1
 
     return choose_with_replacement_table[setsize].table[num]
+
+# encoding raises SIGSEGV in an overflow situation
 
 cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
     cdef ulong delta = 0
     cdef ulong i
     cdef ulong j
+    cdef ulong choose
     for i in range(len_exps): delta += exps[i]
     cdef ulong retval = 0
-    for i in range(0, delta): retval += choose_with_replacement(len_exps, i)
+    for i in range(0, delta):
+        choose = choose_with_replacement(len_exps, i)
+        if choose == UINT64_MAX: raise_(SIGSEGV)
+        retval += choose
     cdef ulong d = delta
     for i in range(0,len_exps-1):
-        for j in range(0, exps[i]): retval += choose_with_replacement(len_exps-i-1, d-j)
+        for j in range(0, exps[i]):
+            choose = choose_with_replacement(len_exps-i-1, d-j)
+            if choose == UINT64_MAX: raise_(SIGSEGV)
+            retval += choose
         d -= exps[i]
     return retval
 
