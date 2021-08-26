@@ -37,6 +37,8 @@ from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_
 from sage.misc.sage_eval import sage_eval
 from sage.misc.misc_c import prod
 
+from sage.functions.other import binomial
+
 from sage.cpython.string cimport char_to_str, str_to_bytes
 
 from functools import reduce
@@ -63,23 +65,44 @@ cdef void raise_SIGSEGV():
 
 # Functions to encode and decode deglex exponents
 #
-# No attempt is made to detect integer overflow
-# choose_with_replacement could be replaced with a lookup table for speed
+# choose_with_replacement() uses a C lookup table for speed.  The binomial coefficient is computed
+# using Sage bigints, to avoid any integer overflow issues, then converted to a 64-bit ulong
+# to be stored in the lookup table.  Some care is still required if the end result doesn't
+# fit into 64 bits; in this case the largest 64-bit integer is stored, but won't be correct.
+#
 # The loops in decode_deglex (maybe encode_deglex, too) could be replaced with lookup tables for speed
 
-cdef ulong choose_with_replacement(ulong setsize, ulong num):
-    #return binomial(setsize + num - 1, num)
-    #return prod(range(setsize + num - 1, num)) / prod(range(setsize - 1, 0))
-    #    or prod(range(setsize + num - 1, setsize - 1)) / prod(range(num, 0))
-    cdef ulong retval = 1
-    cdef ulong i = setsize + num - 1
-    while (i > setsize - 1):
-        retval *= i
-        i -= 1
-    while (num > 1):
-        retval /= num
-        num -= 1
-    return retval
+ctypedef struct choose_with_replacement_table_entry:
+    ulong * table
+    ulong size
+
+cdef choose_with_replacement_table_entry * choose_with_replacement_table = NULL
+cdef ulong choose_with_replacement_table_size = 0
+
+cpdef ulong choose_with_replacement(ulong setsize, ulong num):
+    global choose_with_replacement_table, choose_with_replacement_table_size
+    cdef ulong size
+    if setsize >= choose_with_replacement_table_size:
+        choose_with_replacement_table = <choose_with_replacement_table_entry *> realloc(choose_with_replacement_table,
+                                                          (setsize+1) * sizeof(choose_with_replacement_table_entry))
+        while choose_with_replacement_table_size <= setsize:
+            choose_with_replacement_table[choose_with_replacement_table_size].table = NULL
+            choose_with_replacement_table[choose_with_replacement_table_size].size = 0
+            choose_with_replacement_table_size += 1
+
+    if num >= choose_with_replacement_table[setsize].size:
+        choose_with_replacement_table[setsize].table = <ulong *> realloc(choose_with_replacement_table[setsize].table,
+                                                         (num+1) * sizeof(ulong))
+        while choose_with_replacement_table[setsize].size <= num:
+            size = choose_with_replacement_table[setsize].size
+            value = binomial(setsize + size - 1, size)
+            try:
+                choose_with_replacement_table[setsize].table[size] = <ulong> value
+            except OverflowError:
+                choose_with_replacement_table[setsize].table[size] = 0xffffffffffffffff
+            choose_with_replacement_table[setsize].size += 1
+
+    return choose_with_replacement_table[setsize].table[num]
 
 cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
     cdef ulong delta = 0
