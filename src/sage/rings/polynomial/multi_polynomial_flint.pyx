@@ -193,7 +193,7 @@ cdef void decode_from_buffer(void * poly, slong index, flint_bitcnt_t bits, ulon
         exp[16] = 0
         decode_deglex(output_buffer[3*index], exps, 118)
         decode_deglex(output_buffer[3*index+1], exps+ 118, 12)
-        fmpz_set_ui(coeff, output_buffer[3*index+2])
+        fmpz_set_si(coeff, output_buffer[3*index+2])
 
 def copy_to_buffer(p):
     cdef MPolynomial_flint np = p
