@@ -290,6 +290,7 @@ cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong 
         fmpz_set_si(coeff, file_input_buffer[3*(index-file_input_start)+2])
 
 def copy_to_file(p, filename="bigflint.out"):
+    global file_output_filename
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
@@ -298,6 +299,7 @@ def copy_to_file(p, filename="bigflint.out"):
     fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
 
 def copy_from_file(R, filename="bigflint.out"):
+    global file_input_filename
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
     np._parent = R
