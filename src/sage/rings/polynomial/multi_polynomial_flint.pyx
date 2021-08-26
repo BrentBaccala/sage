@@ -231,19 +231,25 @@ cdef ulong file_input_start = 0
 cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global file_input_filename, file_input_fd, file_input_buffer, file_input_count, file_input_start, file_input_buffer_size
     cdef unsigned char * exps = <unsigned char *> exp
+    cdef int retval
     if index == 0:
         if file_input_fd != -1:
             close(file_input_fd)
         if file_input_buffer != NULL:
             free(file_input_buffer)
         file_input_fd = open(file_input_filename.encode(), O_RDONLY)
+        if file_input_fd == -1:
+            raise_SIGSEGV()
         file_input_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
         file_input_start = 0
         file_input_count = 0
 
     if index == file_input_count:
         file_input_start = file_input_count
-        file_input_count += read(file_input_fd, file_input_buffer, 3 * 1024 * sizeof(ulong)) / (3 * sizeof(ulong))
+        retval = read(file_input_fd, file_input_buffer, 3 * 1024 * sizeof(ulong))
+        if retval == -1:
+            raise_SIGSEGV()
+        file_input_count += retval / (3 * sizeof(ulong))
 
     if index >= file_input_count:
         fmpz_set_ui(coeff, 0)
