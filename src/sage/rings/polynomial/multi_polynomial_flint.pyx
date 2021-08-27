@@ -228,6 +228,9 @@ cdef ulong * file_output_buffer = NULL
 cdef ulong file_output_buffer_size = 1024
 cdef ulong file_output_count = 0
 
+cdef int fmpz_is_mpz(fmpz_t x):
+    return (((<ulong *>x)[0]) >> (FLINT_BITS - 2)) == 1
+
 cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global file_output_filename, file_output_fd, file_output_buffer, file_output_count, file_output_buffer_size
     cdef unsigned char * exps = <unsigned char *> exp
@@ -254,6 +257,7 @@ cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * 
         file_output_count = 0
     v = encode_deglex(exps, 118)
     c = encode_deglex(exps + 118, 12)
+    if fmpz_is_mpz(coeff): raise_(SIGSEGV)
     file_output_buffer[3*file_output_count] = v
     file_output_buffer[3*file_output_count+1] = c
     file_output_buffer[3*file_output_count+2] = (<ulong *>coeff)[0]
