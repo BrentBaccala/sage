@@ -327,7 +327,113 @@ def copy_from_file(R, filename="bigflint.out"):
     fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
     return np
 
+cdef ulong of3_last_radii = UINT64_MAX
+cdef ulong radii_block_size = 0
+cdef ulong radii_count = 0
+cdef ulong * radii_exp_block = NULL
+cdef ulong * radii_coeff_block = NULL
 
+cdef fmpz_mpoly_struct of3_poly
+# cdef fmpz_mpoly_struct of3_fptr[1+4+4+4]
+cdef const fmpz_mpoly_struct ** of3_fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * (1+4+4+4))
+cdef slong of3_iptr[1]
+
+cdef const char * output_function4(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    encode_to_file(NULL, index, bits, exp, coeff, ctx)
+    return status_string_ptr
+
+cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    global file_output_filename
+    global of3_last_radii
+    global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
+    global of3_poly, fptr
+    global r1poly, r2poly, r12poly
+    cdef MPolynomial_flint flintpoly
+    cdef unsigned char * exps
+
+    cdef int r1_power, r2_power, r12_power
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
+    cdef ulong current_radii
+
+    if index == -1:
+        current_radii = UINT64_MAX
+    else:
+        current_radii = (exp[15] >> 56) | (exp[16] << 8)
+
+    if (current_radii != of3_last_radii):
+        if of3_last_radii != UINT64_MAX:
+            # XXX start a new thread to multiply and output polynomial
+            file_output_filename = "radii-{}.out".format(of3_last_radii)
+            of3_poly.coeffs = <fmpz *> radii_coeff_block
+            of3_poly.exps = radii_exp_block
+            of3_poly.length = radii_count
+            of3_poly.bits = bits
+            # discard LSBs; they were presevered below when the exponents were stored
+            r1_power = ((of3_last_radii >> 16) & 254) / 2
+            r2_power = ((of3_last_radii >> 8) & 254) / 2
+            r12_power = (of3_last_radii & 254) / 2
+            of3_fptr[0] = & of3_poly
+            num_factors = 1
+            for _ in range(r1_power):
+                flintpoly = r1poly
+                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
+                num_factors += 1
+            for _ in range(r2_power):
+                flintpoly = r2poly
+                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
+                num_factors += 1
+                r2_power -= 1
+            for _ in range(r12_power):
+                flintpoly = r12poly
+                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
+                num_factors += 1
+            of3_iptr[0] = num_factors
+            fmpz_mpoly_addmul_multi_threaded_abstract(NULL, of3_fptr, of3_iptr, 1, ctx, output_function4)
+        of3_last_radii = current_radii
+        radii_count = 0
+
+    if radii_count >= radii_block_size:
+        if radii_block_size == 0:
+            radii_block_size = 128*1024*1024
+            radii_exp_block = <ulong *>malloc(radii_block_size * N * sizeof(ulong))
+            radii_coeff_block = <ulong *>malloc(radii_block_size * sizeof(ulong))
+        else:
+            # XXX expand radii block
+            raise_SIGSEGV()
+
+    if index == -1:
+        if radii_exp_block != NULL: free(radii_exp_block)
+        if radii_coeff_block != NULL: free(radii_coeff_block)
+        radii_exp_block = NULL
+        radii_coeff_block = NULL
+        radii_block_size = 0
+    else:
+        mpoly_monomial_set(radii_exp_block + radii_count*N, exp, N)
+        radii_coeff_block[radii_count] = (<ulong *>coeff)[0]
+
+        # mask off all but LSBs of r1, r2, and r12
+        exps = <unsigned char *> (radii_exp_block + radii_count*N)
+        exps[127] &= 1
+        exps[128] &= 1
+        exps[129] &= 1
+
+        radii_count += 1
+
+def substitute_file(R, filename="bigflint.out"):
+    global file_input_filename
+    global r1poly, r2poly, r12poly
+    x1 = R.gens_dict()['x1']
+    y1 = R.gens_dict()['y1']
+    z1 = R.gens_dict()['z1']
+    x2 = R.gens_dict()['x2']
+    y2 = R.gens_dict()['y2']
+    z2 = R.gens_dict()['z2']
+    r1poly = (x1**2 + y1**2 + z1**2)
+    r2poly = (x2**2 + y2**2 + z2**2)
+    r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+    cdef MPolynomialRing_flint parent = R
+    file_input_filename = filename
+    fmpz_mpoly_abstract_add(NULL, NULL, 1, 8, parent._ctx, decode_from_file, output_function3)
 
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
