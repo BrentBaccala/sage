@@ -338,7 +338,7 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
     if index == -1:
         return status_string_ptr
 
-    cdef slong N = mpoly_words_per_exp(poly.bits, ctx.minfo)
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
 
     # Check to see if monomial exponents are ordered correctly
     if last_exp == NULL:
@@ -382,6 +382,17 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
         status_string_ptr = status_string_encode
 
     return status_string_ptr
+
+cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    output_function2(NULL, index, bits, exp, coeff, ctx)
+    if ((index > 0) and (index % 1000000 == 0)) or (index == -1):
+        print("Output length", index, status_string)
+
+def check_file(R, filename="bigflint.out"):
+    global file_input_filename
+    cdef MPolynomialRing_flint parent = R
+    file_input_filename = filename
+    fmpz_mpoly_abstract_add(NULL, NULL, 1, 8, parent._ctx, decode_from_file, output_function2a)
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
