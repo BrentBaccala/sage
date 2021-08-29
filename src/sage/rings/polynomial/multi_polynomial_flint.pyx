@@ -395,14 +395,21 @@ cdef void output_block2(output_block_data * data):
 # function to pass to threading.Thread, so we convert all the pointers to ulong's, pass
 # them through this function, and then cast them back to pointers.
 
+of3_threads = []
+of3_thread_limit = 12
+of3_thread_semaphore = threading.Semaphore(of3_thread_limit)
+
 cpdef output_block(ulong arg1):
     cdef output_block_data * data = <output_block_data *> arg1;
     output_block2(data)
+    free(data)
+    of3_thread_semaphore.release()
 
 # Output function for the substitution routine
 
 cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global of3_last_radii
+    global of3_threads, of3_thread_limit, of3_thread_semaphore
     global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
     cdef unsigned char * exps
     cdef output_block_data * data
@@ -426,8 +433,10 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
                 data.count = radii_count
                 data.bits = bits
                 data.ctx = ctx
+                of3_thread_semaphore.acquire()
                 th = threading.Thread(target = output_block, args = (<ulong> data,))
                 th.start()
+                of3_threads.append(th)
             radii_exp_block = NULL
             radii_coeff_block = NULL
             radii_block_size = 0
@@ -464,6 +473,7 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
 
 def substitute_file(R, filename="bigflint.out"):
     global r1poly, r2poly, r12poly
+    global of3_threads
     x1 = R.gens_dict()['x1']
     y1 = R.gens_dict()['y1']
     z1 = R.gens_dict()['z1']
@@ -497,6 +507,9 @@ def substitute_file(R, filename="bigflint.out"):
     close(state.fd)
     free(state.buffer)
     free(state)
+
+    for th in of3_threads: th.join()
+    of3_threads = []
 
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
