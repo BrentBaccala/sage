@@ -321,7 +321,7 @@ cdef extern from "flint_wrap.h":
 
     void fmpz_mpoly_addmul_multi_threaded(fmpz_mpoly_t A, const fmpz_mpoly_struct ** Blist, const slong * Blengths, const slong Bnumseq, const fmpz_mpoly_ctx_t ctx);
 
-    void fmpz_mpoly_addmul_multi_threaded_abstract(fmpz_mpoly_t A, const fmpz_mpoly_struct ** Blist, const slong * Blengths, const slong Bnumseq, const fmpz_mpoly_ctx_t ctx, const char * (* output_function)(fmpz_mpoly_t poly, slong index, const flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx));
+    void fmpz_mpoly_addmul_multi_threaded_abstract(fmpz_mpoly_t A, const fmpz_mpoly_struct ** Blist, const slong * Blengths, const slong Bnumseq, const fmpz_mpoly_ctx_t ctx, const char * (* output_function)(fmpz_mpoly_t poly, slong index, const flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx)) nogil;
 
 # Abstract Addition
 
@@ -329,7 +329,7 @@ cdef extern from "flint_wrap.h":
                                  const void (* input_function)(void * poly, slong index, const flint_bitcnt_t bits,
                                                                ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx),
                                  const void (* output_function)(void * poly, slong index, const flint_bitcnt_t bits,
-                                                                ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx));
+                                                                ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx)) nogil;
 
 
 # Powering

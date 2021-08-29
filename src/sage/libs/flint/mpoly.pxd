@@ -7,20 +7,20 @@ from sage.libs.flint.types cimport *
 #        (mp) bits > FLINT_BITS and bits % FLINT_BITS == 0, or
 #        (sp) MPOLY_MIN_BITS <= bits <= FLINT_BITS
 
-cdef inline slong mpoly_words_per_exp_sp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+cdef inline slong mpoly_words_per_exp_sp(flint_bitcnt_t bits, const mpoly_ctx_t mctx) nogil:
     return mctx.lut_words_per_exp[bits - 1];
 
-cdef inline slong mpoly_words_per_exp_mp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+cdef inline slong mpoly_words_per_exp_mp(flint_bitcnt_t bits, const mpoly_ctx_t mctx) nogil:
     return bits/FLINT_BITS*mctx.nfields;
 
-cdef inline slong mpoly_words_per_exp(flint_bitcnt_t bits, const mpoly_ctx_t mctx):
+cdef inline slong mpoly_words_per_exp(flint_bitcnt_t bits, const mpoly_ctx_t mctx) nogil:
     if (bits <= FLINT_BITS):
         return mpoly_words_per_exp_sp(bits, mctx)
     else:
         return mpoly_words_per_exp_mp(bits, mctx)
 
 
-cdef inline void mpoly_monomial_set(ulong * exp2, const ulong * exp3, slong N):
+cdef inline void mpoly_monomial_set(ulong * exp2, const ulong * exp3, slong N) nogil:
     for i in range(N):
         exp2[i] = exp3[i]
 

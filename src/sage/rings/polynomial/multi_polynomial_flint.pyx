@@ -80,7 +80,7 @@ ctypedef struct choose_with_replacement_table_entry:
 cdef choose_with_replacement_table_entry * choose_with_replacement_table = NULL
 cdef ulong choose_with_replacement_table_size = 0
 
-cpdef ulong choose_with_replacement(ulong setsize, ulong num):
+cpdef ulong choose_with_replacement(ulong setsize, ulong num) nogil:
     global choose_with_replacement_table, choose_with_replacement_table_size
     cdef ulong size
     if setsize >= choose_with_replacement_table_size:
@@ -94,20 +94,21 @@ cpdef ulong choose_with_replacement(ulong setsize, ulong num):
     if num >= choose_with_replacement_table[setsize].size:
         choose_with_replacement_table[setsize].table = <ulong *> realloc(choose_with_replacement_table[setsize].table,
                                                          (num+1) * sizeof(ulong))
-        while choose_with_replacement_table[setsize].size <= num:
-            size = choose_with_replacement_table[setsize].size
-            value = binomial(setsize + size - 1, size)
-            try:
-                choose_with_replacement_table[setsize].table[size] = <ulong> value
-            except OverflowError:
-                choose_with_replacement_table[setsize].table[size] = UINT64_MAX
-            choose_with_replacement_table[setsize].size += 1
+        with gil:
+            while choose_with_replacement_table[setsize].size <= num:
+                size = choose_with_replacement_table[setsize].size
+                value = binomial(setsize + size - 1, size)
+                try:
+                    choose_with_replacement_table[setsize].table[size] = <ulong> value
+                except OverflowError:
+                    choose_with_replacement_table[setsize].table[size] = UINT64_MAX
+                choose_with_replacement_table[setsize].size += 1
 
     return choose_with_replacement_table[setsize].table[num]
 
 # encoding raises SIGSEGV in an overflow situation
 
-cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
+cdef ulong encode_deglex(unsigned char * exps, ulong len_exps) nogil:
     cdef ulong delta = 0
     cdef ulong i
     cdef ulong j
@@ -132,7 +133,7 @@ cdef ulong encode_deglex(unsigned char * exps, ulong len_exps):
 # decoding never raises SIGSEGV because a number between 0 and UINT64_MAX
 # will always decode to some exponent vector
 
-cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps):
+cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps) nogil:
     cdef ulong total_degree = 0
     cdef ulong choose
     #while ind >= choose_with_replacement(len_exps, total_degree):
@@ -166,7 +167,7 @@ cdef ulong * output_buffer = NULL
 cdef ulong output_buffer_size = 0
 cdef ulong output_count = 0
 
-cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global output_buffer, output_count, output_buffer_size
     cdef unsigned char * exps = <unsigned char *> exp
     cdef ulong v
@@ -189,7 +190,7 @@ cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong 
     output_buffer[3*output_count+2] = (<ulong *>coeff)[0]
     output_count += 1
 
-cdef void decode_from_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void decode_from_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef unsigned char * exps = <unsigned char *> exp
     if index >= output_count:
         fmpz_set_ui(coeff, 0)
@@ -267,7 +268,7 @@ cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong 
         state.start = state.count
         retval = read(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
         if retval == -1:
-            raise_SIGSEGV()
+            raise_(SIGSEGV)
         state.count += retval / (3 * sizeof(ulong))
 
     if index >= state.count:
@@ -291,7 +292,8 @@ def copy_to_file(p, filename="bigflint.out"):
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
     state.count = 0
-    fmpz_mpoly_abstract_add(state, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
+    with nogil:
+        fmpz_mpoly_abstract_add(state, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
     close(state.fd)
     free(state.buffer)
     free(state)
@@ -310,7 +312,8 @@ def copy_from_file(R, filename="bigflint.out"):
     state.start = 0
     state.count = 0
     fptr[0] = <fmpz_mpoly_struct *> state
-    fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
+    with nogil:
+        fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
     close(state.fd)
     free(state.buffer)
     free(state)
@@ -447,7 +450,8 @@ def substitute_file(R, filename="bigflint.out"):
     state.count = 0
     fptr[0] = <fmpz_mpoly_struct *> state
 
-    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function3)
+    with nogil:
+        fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function3)
 
     close(state.fd)
     free(state.buffer)

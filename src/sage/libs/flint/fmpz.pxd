@@ -18,11 +18,11 @@ cdef extern from "flint_wrap.h":
 
     # Conversion
     void fmpz_set(fmpz_t f, fmpz_t g)
-    void fmpz_set_ui(fmpz_t, ulong)
+    void fmpz_set_ui(fmpz_t, ulong) nogil
     void fmpz_neg_ui(fmpz_t, ulong)
     ulong fmpz_get_ui(fmpz_t)
 
-    void fmpz_set_si(fmpz_t, slong)
+    void fmpz_set_si(fmpz_t, slong) nogil
     slong fmpz_get_si(fmpz_t)
 
     void fmpz_set_d(fmpz_t, double)
