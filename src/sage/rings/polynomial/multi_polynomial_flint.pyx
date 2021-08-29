@@ -6,6 +6,8 @@ import sys
 
 import itertools
 
+import threading
+
 from collections import Counter
 
 from sage.rings.integer_ring import ZZ
@@ -325,28 +327,82 @@ cdef ulong radii_count = 0
 cdef ulong * radii_exp_block = NULL
 cdef ulong * radii_coeff_block = NULL
 
-cdef fmpz_mpoly_struct of3_poly
-# cdef fmpz_mpoly_struct of3_fptr[1+4+4+4]
-cdef const fmpz_mpoly_struct ** of3_fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * (1+4+4+4))
-cdef slong of3_iptr[1]
-
 cdef const char * output_function4(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     encode_to_file(<void *> poly, index, bits, exp, coeff, ctx)
     return status_string_ptr
 
-cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    global of3_last_radii
-    global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
-    global of3_poly, fptr
+# Once these blocks have been passed to this function, they get processed and then freed.
+
+ctypedef struct output_block_data:
+    ulong radii
+    ulong * exp
+    fmpz * coeffs
+    ulong count
+    flint_bitcnt_t bits
+    fmpz_mpoly_ctx_t ctx
+
+cdef void output_block2(output_block_data * data):
     global r1poly, r2poly, r12poly
     cdef MPolynomial_flint flintpoly
-    cdef unsigned char * exps
-
+    cdef fmpz_mpoly_struct of3_poly
+    # cdef fmpz_mpoly_struct of3_fptr[1+4+4+4]
+    cdef const fmpz_mpoly_struct ** of3_fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * 2)
+    cdef slong of3_iptr[1]
+    cdef encode_to_file_struct * state
     cdef int r1_power, r2_power, r12_power
+
+    of3_poly.coeffs = data.coeffs
+    of3_poly.exps = data.exp
+    of3_poly.length = data.count
+    of3_poly.bits = data.bits
+    of3_fptr[0] = & of3_poly
+
+    # discard LSBs; they were presevered below when the exponents were stored
+    r1_power = ((of3_last_radii >> 16) & 254) / 2
+    r2_power = ((of3_last_radii >> 8) & 254) / 2
+    r12_power = (of3_last_radii & 254) / 2
+    factor = r1poly**r1_power * r2poly**r2_power * r12poly**r12_power
+    flintpoly = factor
+    of3_fptr[1] = <const fmpz_mpoly_struct *>flintpoly._poly
+    of3_iptr[0] = 2
+
+    state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+    filename = "radii-{}.out".format(data.radii)
+    state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+    if state.fd == 1:
+        raise Exception("creat() failed")
+    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+    state.buffer_size = 1024
+    state.count = 0
+
+    with nogil:
+        fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
+
+    close(state.fd)
+    free(state.buffer)
+    free(state)
+    free(of3_fptr)
+    free(data.coeffs)
+    free(data.exp)
+
+# This is here because we can't pass C pointers to Python functions, but we need a Python
+# function to pass to threading.Thread, so we convert all the pointers to ulong's, pass
+# them through this function, and then cast them back to pointers.
+
+cpdef output_block(ulong arg1):
+    cdef output_block_data * data = <output_block_data *> arg1;
+    output_block2(data)
+
+# Output function for the substitution routine
+
+cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    global of3_last_radii
+    global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
+    cdef unsigned char * exps
+    cdef output_block_data * data
+
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef ulong current_radii
-
-    cdef encode_to_file_struct * state
 
     if index == -1:
         current_radii = UINT64_MAX
@@ -355,58 +411,32 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
 
     if (current_radii != of3_last_radii):
         if of3_last_radii != UINT64_MAX:
-            # XXX start a new thread to multiply and output polynomial
-            of3_poly.coeffs = <fmpz *> radii_coeff_block
-            of3_poly.exps = radii_exp_block
-            of3_poly.length = radii_count
-            of3_poly.bits = bits
-            # discard LSBs; they were presevered below when the exponents were stored
-            r1_power = ((of3_last_radii >> 16) & 254) / 2
-            r2_power = ((of3_last_radii >> 8) & 254) / 2
-            r12_power = (of3_last_radii & 254) / 2
-            of3_fptr[0] = & of3_poly
-            num_factors = 1
-            for _ in range(r1_power):
-                flintpoly = r1poly
-                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
-                num_factors += 1
-            for _ in range(r2_power):
-                flintpoly = r2poly
-                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
-                num_factors += 1
-                r2_power -= 1
-            for _ in range(r12_power):
-                flintpoly = r12poly
-                of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
-                num_factors += 1
-            of3_iptr[0] = num_factors
-
-            state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
-            filename = "radii-{}.out".format(of3_last_radii)
-            state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-            if state.fd == 1:
-                raise Exception("creat() failed")
-            state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-            state.buffer_size = 1024
-            state.count = 0
-
-            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, ctx, output_function4)
-
-            close(state.fd)
-            free(state.buffer)
-            free(state)
-
+            # start a new thread to multiply and output polynomial
+            with gil:
+                data = <output_block_data *> malloc(sizeof(output_block_data))
+                data.radii = of3_last_radii
+                data.exp = radii_exp_block
+                data.coeffs = <fmpz *> radii_coeff_block
+                data.count = radii_count
+                data.bits = bits
+                data.ctx = ctx
+                th = threading.Thread(target = output_block, args = (<ulong> data,))
+                th.start()
+            radii_exp_block = NULL
+            radii_coeff_block = NULL
+            radii_block_size = 0
         of3_last_radii = current_radii
         radii_count = 0
 
     if radii_count >= radii_block_size:
         if radii_block_size == 0:
-            radii_block_size = 128*1024*1024
+            radii_block_size = 1024*1024
             radii_exp_block = <ulong *>malloc(radii_block_size * N * sizeof(ulong))
             radii_coeff_block = <ulong *>malloc(radii_block_size * sizeof(ulong))
         else:
-            # XXX expand radii block
-            raise_SIGSEGV()
+            radii_block_size += 1024*1024
+            radii_exp_block = <ulong *>realloc(radii_exp_block, radii_block_size * N * sizeof(ulong))
+            radii_coeff_block = <ulong *>realloc(radii_coeff_block, radii_block_size * sizeof(ulong))
 
     if index == -1:
         if radii_exp_block != NULL: free(radii_exp_block)
