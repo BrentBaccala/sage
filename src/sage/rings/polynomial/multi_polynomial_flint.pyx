@@ -222,109 +222,98 @@ def copy_from_buffer(R):
 #
 # Global variables, so we can only write to one file at a time :-(
 
-file_output_filename = "bigflint.out"
-cdef int file_output_fd = -1
-cdef ulong * file_output_buffer = NULL
-cdef ulong file_output_buffer_size = 1024
-cdef ulong file_output_count = 0
-
 cdef int fmpz_is_mpz(fmpz_t x):
     return (((<ulong *>x)[0]) >> (FLINT_BITS - 2)) == 1
 
+ctypedef struct encode_to_file_struct:
+    int fd
+    ulong * buffer
+    ulong buffer_size
+    ulong count
+
 cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    global file_output_filename, file_output_fd, file_output_buffer, file_output_count, file_output_buffer_size
+    cdef encode_to_file_struct * state = <encode_to_file_struct *> poly
     cdef unsigned char * exps = <unsigned char *> exp
     cdef ulong v
     cdef ulong c
-    if index == 0:
-        if file_output_fd != -1:
-            close(file_output_fd)
-        if file_output_buffer != NULL:
-            free(file_output_buffer)
-        file_output_fd = creat(file_output_filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-        file_output_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-        file_output_count = 0
-    elif index == -1:
-        if file_output_count != 0:
-            write(file_output_fd, file_output_buffer, 3 * file_output_count * sizeof(ulong))
-        close(file_output_fd)
-        file_output_fd = -1
-        free(file_output_buffer)
-        file_output_buffer = NULL
+    if index == -1:
+        if state.count != 0:
+            write(state.fd, state.buffer, 3 * state.count * sizeof(ulong))
         return
-    elif index % file_output_buffer_size == 0:
-        write(file_output_fd, file_output_buffer, 3 * 1024 * sizeof(ulong))
-        file_output_count = 0
+    elif (index > 0) and (index % state.buffer_size == 0):
+        write(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
+        state.count = 0
     v = encode_deglex(exps, 118)
     c = encode_deglex(exps + 118, 12)
     if fmpz_is_mpz(coeff): raise_(SIGSEGV)
-    file_output_buffer[3*file_output_count] = v
-    file_output_buffer[3*file_output_count+1] = c
-    file_output_buffer[3*file_output_count+2] = (<ulong *>coeff)[0]
-    file_output_count += 1
+    state.buffer[3*state.count] = v
+    state.buffer[3*state.count+1] = c
+    state.buffer[3*state.count+2] = (<ulong *>coeff)[0]
+    state.count += 1
 
-file_input_filename = "bigflint.out"
-cdef int file_input_fd = -1
-cdef ulong * file_input_buffer = NULL
-cdef ulong file_input_buffer_size = 1024
-cdef ulong file_input_count = 0
-cdef ulong file_input_start = 0
+ctypedef struct decode_from_file_struct:
+    int fd
+    ulong * buffer
+    ulong buffer_size
+    ulong count
+    ulong start
 
 cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    global file_input_filename, file_input_fd, file_input_buffer, file_input_count, file_input_start, file_input_buffer_size
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> poly
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
-    if index == 0:
-        if file_input_fd != -1:
-            close(file_input_fd)
-        if file_input_buffer != NULL:
-            free(file_input_buffer)
-        file_input_fd = open(file_input_filename.encode(), O_RDONLY)
-        if file_input_fd == -1:
-            raise_SIGSEGV()
-        file_input_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-        file_input_start = 0
-        file_input_count = 0
 
-    if index == file_input_count:
-        file_input_start = file_input_count
-        retval = read(file_input_fd, file_input_buffer, 3 * 1024 * sizeof(ulong))
+    if index == state.count:
+        state.start = state.count
+        retval = read(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
         if retval == -1:
             raise_SIGSEGV()
-        file_input_count += retval / (3 * sizeof(ulong))
+        state.count += retval / (3 * sizeof(ulong))
 
-    if index >= file_input_count:
+    if index >= state.count:
         fmpz_set_ui(coeff, 0)
-        if file_input_fd != -1:
-            close(file_input_fd)
-        if file_input_buffer != NULL:
-            free(file_input_buffer)
-        file_input_fd = -1
-        file_input_buffer = NULL
     else:
         # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
         exp[16] = 0
-        decode_deglex(file_input_buffer[3*(index-file_input_start)], exps, 118)
-        decode_deglex(file_input_buffer[3*(index-file_input_start)+1], exps+ 118, 12)
-        fmpz_set_si(coeff, file_input_buffer[3*(index-file_input_start)+2])
+        decode_deglex(state.buffer[3*(index-state.start)], exps, 118)
+        decode_deglex(state.buffer[3*(index-state.start)+1], exps+ 118, 12)
+        fmpz_set_si(coeff, state.buffer[3*(index-state.start)+2])
 
 def copy_to_file(p, filename="bigflint.out"):
-    global file_output_filename
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     fptr[0] = <const fmpz_mpoly_struct *>np._poly
-    file_output_filename = filename
-    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
+    cdef encode_to_file_struct * state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+    state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+    if state.fd == 1:
+        raise Exception("creat() failed")
+    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+    state.buffer_size = 1024
+    state.count = 0
+    fmpz_mpoly_abstract_add(state, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
+    close(state.fd)
+    free(state.buffer)
+    free(state)
 
 def copy_from_file(R, filename="bigflint.out"):
-    global file_input_filename
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
     np._parent = R
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
-    file_input_filename = filename
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
+    state.fd = open(filename.encode(), O_RDONLY)
+    if state.fd == 1:
+        raise Exception("open() failed")
+    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+    state.buffer_size = 1024
+    state.start = 0
+    state.count = 0
+    fptr[0] = <fmpz_mpoly_struct *> state
     fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
+    close(state.fd)
+    free(state.buffer)
+    free(state)
     return np
 
 cdef ulong of3_last_radii = UINT64_MAX
@@ -339,11 +328,10 @@ cdef const fmpz_mpoly_struct ** of3_fptr = <const fmpz_mpoly_struct **>malloc(si
 cdef slong of3_iptr[1]
 
 cdef const char * output_function4(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    encode_to_file(NULL, index, bits, exp, coeff, ctx)
+    encode_to_file(<void *> poly, index, bits, exp, coeff, ctx)
     return status_string_ptr
 
 cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    global file_output_filename
     global of3_last_radii
     global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
     global of3_poly, fptr
@@ -355,6 +343,8 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef ulong current_radii
 
+    cdef encode_to_file_struct * state
+
     if index == -1:
         current_radii = UINT64_MAX
     else:
@@ -363,7 +353,6 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
     if (current_radii != of3_last_radii):
         if of3_last_radii != UINT64_MAX:
             # XXX start a new thread to multiply and output polynomial
-            file_output_filename = "radii-{}.out".format(of3_last_radii)
             of3_poly.coeffs = <fmpz *> radii_coeff_block
             of3_poly.exps = radii_exp_block
             of3_poly.length = radii_count
@@ -388,7 +377,22 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
                 of3_fptr[num_factors] = <const fmpz_mpoly_struct *>flintpoly._poly
                 num_factors += 1
             of3_iptr[0] = num_factors
-            fmpz_mpoly_addmul_multi_threaded_abstract(NULL, of3_fptr, of3_iptr, 1, ctx, output_function4)
+
+            state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+            filename = "radii-{}.out".format(of3_last_radii)
+            state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+            if state.fd == 1:
+                raise Exception("creat() failed")
+            state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+            state.buffer_size = 1024
+            state.count = 0
+
+            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, ctx, output_function4)
+
+            close(state.fd)
+            free(state.buffer)
+            free(state)
+
         of3_last_radii = current_radii
         radii_count = 0
 
@@ -420,7 +424,6 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
         radii_count += 1
 
 def substitute_file(R, filename="bigflint.out"):
-    global file_input_filename
     global r1poly, r2poly, r12poly
     x1 = R.gens_dict()['x1']
     y1 = R.gens_dict()['y1']
@@ -432,8 +435,23 @@ def substitute_file(R, filename="bigflint.out"):
     r2poly = (x2**2 + y2**2 + z2**2)
     r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
     cdef MPolynomialRing_flint parent = R
-    file_input_filename = filename
-    fmpz_mpoly_abstract_add(NULL, NULL, 1, 8, parent._ctx, decode_from_file, output_function3)
+
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
+    state.fd = open(filename.encode(), O_RDONLY)
+    if state.fd == 1:
+        raise Exception("open() failed")
+    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+    state.buffer_size = 1024
+    state.start = 0
+    state.count = 0
+    fptr[0] = <fmpz_mpoly_struct *> state
+
+    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function3)
+
+    close(state.fd)
+    free(state.buffer)
+    free(state)
 
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     global status_string, status_string_encode, status_string_ptr
@@ -495,10 +513,24 @@ cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong
         print("Output length", index, status_string)
 
 def check_file(R, filename="bigflint.out"):
-    global file_input_filename
     cdef MPolynomialRing_flint parent = R
-    file_input_filename = filename
-    fmpz_mpoly_abstract_add(NULL, NULL, 1, 8, parent._ctx, decode_from_file, output_function2a)
+
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
+    state.fd = open(filename.encode(), O_RDONLY)
+    if state.fd == 1:
+        raise Exception("open() failed")
+    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+    state.buffer_size = 1024
+    state.start = 0
+    state.count = 0
+    fptr[0] = <fmpz_mpoly_struct *> state
+
+    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function2a)
+
+    close(state.fd)
+    free(state.buffer)
+    free(state)
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
@@ -1212,6 +1244,8 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
         p._parent = self
 
+        cdef encode_to_file_struct * state
+
         if verbose: print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
 
         # Construct a list of polynomials that we will refer to by their index number.
@@ -1375,7 +1409,20 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
         if verbose:
-            fmpz_mpoly_addmul_multi_threaded_abstract(p._poly, fptr, iptr, len(terms), self._ctx, output_function4)
+            state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+            filename = "bigflint.out"
+            state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+            if state.fd == 1:
+                raise Exception("creat() failed")
+            state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+            state.buffer_size = 1024
+            state.count = 0
+
+            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, fptr, iptr, len(terms), self._ctx, output_function4)
+
+            close(state.fd)
+            free(state.buffer)
+            free(state)
         else:
             fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
 
