@@ -82,7 +82,7 @@ ctypedef struct choose_with_replacement_table_entry:
 cdef choose_with_replacement_table_entry * choose_with_replacement_table = NULL
 cdef ulong choose_with_replacement_table_size = 0
 
-cpdef ulong choose_with_replacement(ulong setsize, ulong num) nogil:
+cpdef void choose_with_replacement_fill_table(ulong setsize, ulong num) nogil:
     global choose_with_replacement_table, choose_with_replacement_table_size
     cdef ulong size
     if setsize >= choose_with_replacement_table_size:
@@ -105,6 +105,12 @@ cpdef ulong choose_with_replacement(ulong setsize, ulong num) nogil:
                 except OverflowError:
                     choose_with_replacement_table[setsize].table[size] = UINT64_MAX
                 choose_with_replacement_table[setsize].size += 1
+
+cpdef ulong choose_with_replacement(ulong setsize, ulong num) nogil:
+    global choose_with_replacement_table, choose_with_replacement_table_size
+
+    if setsize >= choose_with_replacement_table_size or num >= choose_with_replacement_table[setsize].size:
+        choose_with_replacement_fill_table(setsize, num)
 
     return choose_with_replacement_table[setsize].table[num]
 
@@ -468,6 +474,11 @@ def substitute_file(R, filename="bigflint.out"):
     r2poly = (x2**2 + y2**2 + z2**2)
     r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
     cdef MPolynomialRing_flint parent = R
+
+    for i in range(12):
+        choose_with_replacement(i, 31)
+    for i in range(118):
+        choose_with_replacement(i, 6)
 
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
