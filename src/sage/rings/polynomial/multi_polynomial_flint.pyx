@@ -242,6 +242,7 @@ ctypedef struct encode_to_file_struct:
     ulong * buffer
     ulong buffer_size
     ulong count
+    ulong total
 
 cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
     cdef encode_to_file_struct * state = <encode_to_file_struct *> poly
@@ -252,7 +253,9 @@ cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * 
         if state.count != 0:
             write(state.fd, state.buffer, 3 * state.count * sizeof(ulong))
         return
-    elif (index > 0) and (index % state.buffer_size == 0):
+    elif index == 0:
+        state.total = 0
+    elif index % state.buffer_size == 0:
         write(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
         state.count = 0
     v = encode_deglex(exps, 118)
@@ -262,6 +265,7 @@ cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * 
     state.buffer[3*state.count+1] = c
     state.buffer[3*state.count+2] = (<ulong *>coeff)[0]
     state.count += 1
+    state.total += 1
 
 ctypedef struct decode_from_file_struct:
     int fd
