@@ -3,6 +3,7 @@ Sparse multivariate polynomials over `\ZZ`, implemented using FLINT
 """
 
 import sys
+import os
 
 import itertools
 
@@ -33,8 +34,10 @@ from sage.libs.flint.fmpz_mpoly_factor cimport *
 from libc.stdlib cimport malloc, realloc, free
 from libc.stdint cimport UINT64_MAX
 from libc.signal cimport raise_, SIGSEGV
+from libc.stdio cimport fclose
+from posix.stdio cimport FILE, popen, fileno
 from posix.fcntl cimport creat, open, O_RDONLY
-from posix.unistd cimport read, write, close
+from posix.unistd cimport read, write, close, dup
 from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH, S_IWOTH
 
 from sage.misc.sage_eval import sage_eval
@@ -356,37 +359,62 @@ cdef void output_block2(output_block_data * data):
     cdef slong of3_iptr[1]
     cdef encode_to_file_struct * state
     cdef int r1_power, r2_power, r12_power
+    cdef FILE * popen_FILE
 
-    of3_poly.coeffs = data.coeffs
-    of3_poly.exps = data.exp
-    of3_poly.length = data.count
-    of3_poly.bits = data.bits
-    of3_fptr[0] = & of3_poly
+    filename = "radii-{}.out.gz".format(data.radii)
 
-    # discard LSBs; they were presevered below when the exponents were stored
-    r1_power = ((of3_last_radii >> 16) & 254) / 2
-    r2_power = ((of3_last_radii >> 8) & 254) / 2
-    r12_power = (of3_last_radii & 254) / 2
-    factor = r1poly**r1_power * r2poly**r2_power * r12poly**r12_power
-    flintpoly = factor
-    of3_fptr[1] = <const fmpz_mpoly_struct *>flintpoly._poly
-    of3_iptr[0] = 2
+    if not os.path.isfile(filename):
 
-    state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
-    filename = "radii-{}.out".format(data.radii)
-    state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-    if state.fd == 1:
-        raise Exception("creat() failed")
-    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-    state.buffer_size = 1024
-    state.count = 0
+        of3_poly.coeffs = data.coeffs
+        of3_poly.exps = data.exp
+        of3_poly.length = data.count
+        of3_poly.bits = data.bits
+        of3_fptr[0] = & of3_poly
 
-    with nogil:
-        fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
+        # discard LSBs; they were presevered below when the exponents were stored
+        r1_power = ((data.radii >> 16) & 254) / 2
+        r2_power = ((data.radii >> 8) & 254) / 2
+        r12_power = (data.radii & 254) / 2
+        factor = r1poly**r1_power * r2poly**r2_power * r12poly**r12_power
+        flintpoly = factor
+        of3_fptr[1] = <const fmpz_mpoly_struct *>flintpoly._poly
+        of3_iptr[0] = 2
 
-    close(state.fd)
-    free(state.buffer)
-    free(state)
+        state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+
+        command = "gzip > {}".format(filename)
+        command_type = "w"
+        popen_FILE = popen(command.encode(), command_type.encode())
+        if popen_FILE == NULL:
+            raise Exception("popen() failed on gzip > " + filename)
+
+        # I'd prefer to dup the file descriptor and close the buffered popen
+        # to avoid any kind of conflict between the buffered file I/O and
+        # the raw I/O that we use, but fclose'ing a popen'ed FILE will
+        # wait for the process to terminate.
+
+        state.fd = fileno(popen_FILE)
+        if state.fd == -1:
+            raise Exception("fileno() failed on " + filename)
+
+        print("Starting write for radii", data.radii, "lengths", data.count, "x", len(factor), file=sys.stderr)
+
+        state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        state.buffer_size = 1024
+        state.count = 0
+
+        with nogil:
+            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
+
+        print("Finished write for radii", data.radii, "length", state.total, file=sys.stderr)
+        fclose(popen_FILE)
+        free(state.buffer)
+        free(state)
+
+    else:
+
+        print("Skipping radii", data.radii, "(file exists)", file=sys.stderr)
+
     free(of3_fptr)
     free(data.coeffs)
     free(data.exp)
