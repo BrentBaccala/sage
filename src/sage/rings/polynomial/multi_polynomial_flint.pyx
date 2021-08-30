@@ -274,7 +274,7 @@ ctypedef struct decode_from_file_struct:
     ulong count
     ulong start
 
-cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> poly
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
@@ -316,12 +316,22 @@ def copy_to_file(p, filename="bigflint.out"):
 def copy_from_file(R, filename="bigflint.out"):
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
+    cdef FILE * popen_FILE
     np._parent = R
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
-    state.fd = open(filename.encode(), O_RDONLY)
-    if state.fd == 1:
-        raise Exception("open() failed")
+
+    if filename.endswith('.gz'):
+        command = "zcat {}".format(filename)
+        command_type = "r"
+        popen_FILE = popen(command.encode(), command_type.encode())
+        if popen_FILE == NULL:
+            raise Exception("popen() failed on zcat " + filename)
+        state.fd = fileno(popen_FILE)
+    else:
+        state.fd = open(filename.encode(), O_RDONLY)
+        if state.fd == 1:
+            raise Exception("open() failed")
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
     state.start = 0
@@ -329,7 +339,10 @@ def copy_from_file(R, filename="bigflint.out"):
     fptr[0] = <fmpz_mpoly_struct *> state
     with nogil:
         fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
-    close(state.fd)
+    if filename.endswith('.gz'):
+        fclose(popen_FILE)
+    else:
+        close(state.fd)
     free(state.buffer)
     free(state)
     return np
