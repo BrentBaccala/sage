@@ -67,9 +67,6 @@ cdef int max_cdeg = 0
 # Raising a Python exception in a Cython callback from FLINT does nothing other than print a message,
 # so deal with fatal errors by generating a seg fault, which will be caught by gdb if running with "sage --gdb"
 
-cdef void raise_SIGSEGV():
-    raise_(SIGSEGV)
-
 # Functions to encode and decode deglex exponents
 #
 # choose_with_replacement() uses a C lookup table for speed.  The binomial coefficient is computed
@@ -567,7 +564,7 @@ def substitute_file(R, filename="bigflint.out"):
     for th in of3_threads: th.join()
     of3_threads = []
 
-cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
@@ -584,7 +581,7 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
         mpoly_monomial_set(last_exp, exp, N)
     else:
         if mpoly_monomial_lt_nomask(last_exp, exp, N):
-            raise_SIGSEGV()
+            raise_(SIGSEGV)
         else:
             mpoly_monomial_set(last_exp, exp, N)
 
@@ -600,7 +597,7 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
     cdef ulong current_radii = (exp[15] >> 56) | (exp[16] << 8)
     if (current_radii != last_radii):
         if (last_radii != 0) and (current_radii > last_radii):
-            raise_SIGSEGV()
+            raise_(SIGSEGV)
         last_radii = current_radii
         radii_blocks += 1
         if last_radii_count > max_radii_count:
@@ -615,16 +612,18 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
         exp1 = exps[129]
         exp2 = exps[128]
         exp3 = exps[127]
-        status_string = "{},{},{} {}/{} vdeg={} cdeg={}".format(exp1, exp2, exp3, radii_blocks, max_radii_count, max_vdeg, max_cdeg)
-        status_string_encode = status_string.encode()
-        status_string_ptr = status_string_encode
+        with gil:
+            status_string = "{},{},{} {}/{} vdeg={} cdeg={}".format(exp1, exp2, exp3, radii_blocks, max_radii_count, max_vdeg, max_cdeg)
+            status_string_encode = status_string.encode()
+            status_string_ptr = status_string_encode
 
     return status_string_ptr
 
-cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     output_function2(NULL, index, bits, exp, coeff, ctx)
     if ((index > 0) and (index % 1000000 == 0)) or (index == -1):
-        print("Output length", index, status_string)
+        with gil:
+            print("Output length", index, status_string)
 
 def check_file(R, filename="bigflint.out"):
     cdef MPolynomialRing_flint parent = R
@@ -640,7 +639,8 @@ def check_file(R, filename="bigflint.out"):
     state.count = 0
     fptr[0] = <fmpz_mpoly_struct *> state
 
-    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function2a)
+    with nogil:
+        fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function2a)
 
     close(state.fd)
     free(state.buffer)
