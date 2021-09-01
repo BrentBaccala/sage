@@ -36,6 +36,7 @@ from libc.stdint cimport UINT64_MAX
 from libc.signal cimport raise_, SIGSEGV
 from libc.stdio cimport fclose
 from posix.stdio cimport FILE, popen, fileno
+from posix.strings cimport bcopy
 from posix.fcntl cimport creat, open, O_RDONLY
 from posix.unistd cimport read, write, close, dup
 from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH, S_IWOTH
@@ -273,27 +274,37 @@ ctypedef struct decode_from_file_struct:
     ulong buffer_size
     ulong count
     ulong start
+    ulong trailing_bytes
 
 cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> poly
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
 
-    if index == state.count:
+    while index == state.count:
+        if index == 0:
+            state.trailing_bytes = 0
+        if state.trailing_bytes > 0:
+            bcopy(state.buffer + 3 * (state.count - state.start), state.buffer, state.trailing_bytes)
         state.start = state.count
-        retval = read(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
+        retval = read(state.fd, (<char *>state.buffer) + state.trailing_bytes,
+                      3 * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
         if retval == -1:
             raise_(SIGSEGV)
+        if retval == 0:
+            fmpz_set_si(coeff, 0)
+            return
+        retval += state.trailing_bytes
+        state.trailing_bytes = retval % (3 * sizeof(ulong))
         state.count += retval / (3 * sizeof(ulong))
 
-    if index >= state.count:
-        fmpz_set_ui(coeff, 0)
-    else:
-        # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-        exp[16] = 0
-        decode_deglex(state.buffer[3*(index-state.start)], exps, 118)
-        decode_deglex(state.buffer[3*(index-state.start)+1], exps+ 118, 12)
-        fmpz_set_si(coeff, state.buffer[3*(index-state.start)+2])
+    # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
+    exp[16] = 0
+    decode_deglex(state.buffer[3*(index-state.start)], exps, 118)
+    decode_deglex(state.buffer[3*(index-state.start)+1], exps+ 118, 12)
+    fmpz_set_si(coeff, state.buffer[3*(index-state.start)+2])
+    if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
+        raise_(SIGSEGV)
 
 def copy_to_file(p, filename="bigflint.out"):
     cdef MPolynomial_flint np = p
