@@ -86,18 +86,18 @@ cdef ulong choose_with_replacement_table_size = 0
 cpdef void choose_with_replacement_fill_table(ulong setsize, ulong num) nogil:
     global choose_with_replacement_table, choose_with_replacement_table_size
     cdef ulong size
-    if setsize >= choose_with_replacement_table_size:
-        choose_with_replacement_table = <choose_with_replacement_table_entry *> realloc(choose_with_replacement_table,
-                                                          (setsize+1) * sizeof(choose_with_replacement_table_entry))
-        while choose_with_replacement_table_size <= setsize:
-            choose_with_replacement_table[choose_with_replacement_table_size].table = NULL
-            choose_with_replacement_table[choose_with_replacement_table_size].size = 0
-            choose_with_replacement_table_size += 1
+    with gil:
+        if setsize >= choose_with_replacement_table_size:
+            choose_with_replacement_table = <choose_with_replacement_table_entry *> realloc(choose_with_replacement_table,
+                                                              (setsize+1) * sizeof(choose_with_replacement_table_entry))
+            while choose_with_replacement_table_size <= setsize:
+                choose_with_replacement_table[choose_with_replacement_table_size].table = NULL
+                choose_with_replacement_table[choose_with_replacement_table_size].size = 0
+                choose_with_replacement_table_size += 1
 
-    if num >= choose_with_replacement_table[setsize].size:
-        choose_with_replacement_table[setsize].table = <ulong *> realloc(choose_with_replacement_table[setsize].table,
-                                                         (num+1) * sizeof(ulong))
-        with gil:
+        if num >= choose_with_replacement_table[setsize].size:
+            choose_with_replacement_table[setsize].table = <ulong *> realloc(choose_with_replacement_table[setsize].table,
+                                                             (num+1) * sizeof(ulong))
             while choose_with_replacement_table[setsize].size <= num:
                 size = choose_with_replacement_table[setsize].size
                 value = binomial(setsize + size - 1, size)
