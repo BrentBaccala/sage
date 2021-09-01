@@ -645,6 +645,56 @@ def check_file(R, filename="bigflint.out"):
     close(state.fd)
     free(state.buffer)
     free(state)
+    free(fptr)
+
+def sum_files(R, filename_list=[]):
+    cdef MPolynomialRing_flint parent = R
+
+    cdef int nfiles = len(filename_list)
+    if nfiles == 0: return
+
+    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * nfiles)
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct) * nfiles)
+    cdef FILE ** popen_FILE = <FILE **> malloc(sizeof(FILE *) * nfiles)
+
+    for i in range(12):
+        choose_with_replacement(i, 31)
+    for i in range(118):
+        choose_with_replacement(i, 6)
+
+    for i, filename in enumerate(filename_list):
+        if filename.endswith('.gz'):
+            command = "zcat {}".format(filename)
+            command_type = "r"
+            popen_FILE[i] = popen(command.encode(), command_type.encode())
+            if popen_FILE[i] == NULL:
+                # XXX doesn't free linguring buffers
+                raise Exception("popen() failed on zcat " + filename)
+            state[i].fd = fileno(popen_FILE[i])
+        else:
+            state[i].fd = open(filename.encode(), O_RDONLY)
+            if state[i].fd == 1:
+                raise Exception("open() failed on " + filename)
+            popen_FILE[i] = NULL
+
+        state[i].buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        state[i].buffer_size = 1024
+        state[i].start = 0
+        state[i].count = 0
+        fptr[i] = <fmpz_mpoly_struct *> & state[i]
+
+    with nogil:
+        fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, decode_from_file, output_function2a)
+
+    for i in range(nfiles):
+        if popen_FILE[i] == NULL:
+            close(state.fd)
+        else:
+            fclose(popen_FILE[i])
+        free(state[i].buffer)
+    free(popen_FILE)
+    free(state)
+    free(fptr)
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
