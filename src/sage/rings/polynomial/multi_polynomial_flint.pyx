@@ -67,53 +67,107 @@ cdef int max_cdeg = 0
 # Raising a Python exception in a Cython callback from FLINT does nothing other than print a message,
 # so deal with fatal errors by generating a seg fault, which will be caught by gdb if running with "sage --gdb"
 
-# Functions to encode and decode deglex exponents
+# Functions to compute the coefficents used to encode deglex exponents
 #
-# choose_with_replacement() uses a C lookup table for speed.  The binomial coefficient is computed
+# We use a C lookup table for speed.  The deglex coefficient (based on binomial coefficients) is computed
 # using Sage bigints, to avoid any integer overflow issues, then converted to a 64-bit ulong
 # to be stored in the lookup table.  Some care is still required if the end result doesn't
-# fit into 64 bits; in this case the largest 64-bit integer is stored, but won't be correct.
-#
-# The loops in decode_deglex (maybe encode_deglex, too) could be replaced with lookup tables for speed
+# fit into 64 bits; in this case the largest 64-bit integer is stored; the table entry won't be correct,
+# but this is detected and handled.
 
-ctypedef struct choose_with_replacement_table_entry:
+cdef ulong choose_with_replacement(ulong setsize, ulong num):
+    cdef ulong retval
+    value = binomial(setsize + num - 1, num)
+    try:
+        retval = <ulong> value
+    except OverflowError:
+        retval = UINT64_MAX
+    return retval
+
+# deglex(len_exps, 0, -1) = 0 will be called for constant terms; otherwise offset is non-zero
+# and has to be >= num-1
+
+cpdef ulong deglex_coeff_slow(ulong len_exps, ulong num, ulong offset):
+    cdef ulong i
+    cdef ulong choose
+    cdef ulong retval = 0
+    for i in range(0, num):
+        choose = choose_with_replacement(len_exps, offset-i)
+        if choose == UINT64_MAX: raise_(SIGSEGV)
+        if (UINT64_MAX - choose < retval): raise_(SIGSEGV)
+        retval += choose
+    return retval
+
+ctypedef struct deglex_table_entry:
     ulong * table
     ulong size
 
-cdef choose_with_replacement_table_entry * choose_with_replacement_table = NULL
-cdef ulong choose_with_replacement_table_size = 0
+ctypedef struct deglex_table_entry2:
+    deglex_table_entry * table
+    ulong size
 
-cpdef void choose_with_replacement_fill_table(ulong setsize, ulong num) nogil:
-    global choose_with_replacement_table, choose_with_replacement_table_size
+cdef deglex_table_entry2 * deglex_table = NULL
+cdef ulong deglex_table_size = 0
+
+cpdef void deglex_fill_table(ulong setsize, ulong num, ulong offset) nogil:
+    global deglex_table, deglex_table_size
     cdef ulong size
+    # Not only does gil let us call binomial to compute the deglex coefficients,
+    # but it also protects the realloc's from multiple entries into this code
     with gil:
-        if setsize >= choose_with_replacement_table_size:
-            choose_with_replacement_table = <choose_with_replacement_table_entry *> realloc(choose_with_replacement_table,
-                                                              (setsize+1) * sizeof(choose_with_replacement_table_entry))
-            while choose_with_replacement_table_size <= setsize:
-                choose_with_replacement_table[choose_with_replacement_table_size].table = NULL
-                choose_with_replacement_table[choose_with_replacement_table_size].size = 0
-                choose_with_replacement_table_size += 1
+        if setsize >= deglex_table_size:
+            deglex_table = <deglex_table_entry2 *> realloc(deglex_table,
+                                                              (setsize+1) * sizeof(deglex_table_entry2))
+            while deglex_table_size <= setsize:
+                deglex_table[deglex_table_size].table = NULL
+                deglex_table[deglex_table_size].size = 0
+                deglex_table_size += 1
 
-        if num >= choose_with_replacement_table[setsize].size:
-            choose_with_replacement_table[setsize].table = <ulong *> realloc(choose_with_replacement_table[setsize].table,
-                                                             (num+1) * sizeof(ulong))
-            while choose_with_replacement_table[setsize].size <= num:
-                size = choose_with_replacement_table[setsize].size
-                value = binomial(setsize + size - 1, size)
-                try:
-                    choose_with_replacement_table[setsize].table[size] = <ulong> value
-                except OverflowError:
-                    choose_with_replacement_table[setsize].table[size] = UINT64_MAX
-                choose_with_replacement_table[setsize].size += 1
+        if num >= deglex_table[setsize].size:
+            deglex_table[setsize].table = <deglex_table_entry *> realloc(deglex_table[setsize].table,
+                                                             (num+1) * sizeof(deglex_table_entry))
+            while deglex_table[setsize].size <= num:
+                size = deglex_table[setsize].size
+                deglex_table[setsize].table[size].table = NULL
+                deglex_table[setsize].table[size].size = 0
+                deglex_table[setsize].size += 1
 
-cpdef ulong choose_with_replacement(ulong setsize, ulong num) nogil:
-    global choose_with_replacement_table, choose_with_replacement_table_size
+        if offset - (num-1) >= deglex_table[setsize].table[num].size:
+            deglex_table[setsize].table[num].table = <ulong *> realloc(deglex_table[setsize].table[num].table,
+                                                             (offset - (num-1) + 1) * sizeof(ulong))
+            while deglex_table[setsize].table[num].size <= offset - (num-1):
+                size = deglex_table[setsize].table[num].size
+                deglex_table[setsize].table[num].table[size] = deglex_coeff_slow(setsize, num, size + (num-1))
+                deglex_table[setsize].table[num].size += 1
 
-    if setsize >= choose_with_replacement_table_size or num >= choose_with_replacement_table[setsize].size:
-        choose_with_replacement_fill_table(setsize, num)
+# Single-threaded code can safely resize the lookup table during the run.
+#
+# Multi-threaded code has to prefill the table before it starts to avoid a race condition.
 
-    return choose_with_replacement_table[setsize].table[num]
+def deglex_prefill_table(num_exps, max_degree):
+    for i in range(num_exps+1):
+        for j in range(max_degree+1):
+            deglex_fill_table(i, j, max_degree)
+
+cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
+    """
+        TESTS::
+            sage: from sage.rings.polynomial.multi_polynomial_flint import deglex_coeff
+            sage: deglex_coeff(60, 0, 3)
+            0
+    """
+    global deglex_table, deglex_table_size
+
+    if setsize >= deglex_table_size or num >= deglex_table[setsize].size \
+       or offset - (num-1) >= deglex_table[setsize].table[num].size:
+        deglex_fill_table(setsize, num, offset)
+
+    # XXX race condition - table address could be moved by a realloc during the
+    # pointer operations required by the next line
+
+    return deglex_table[setsize].table[num].table[offset - (num-1)]
+
+# Functions to encode and decode deglex exponents
 
 # encoding raises SIGSEGV in an overflow situation
 
@@ -123,52 +177,68 @@ cdef ulong encode_deglex(unsigned char * exps, ulong len_exps) nogil:
     cdef ulong j
     cdef ulong choose
     for i in range(len_exps): delta += exps[i]
-    cdef ulong retval = 0
-    for i in range(0, delta):
-        choose = choose_with_replacement(len_exps, i)
-        if choose == UINT64_MAX: raise_(SIGSEGV)
-        if (UINT64_MAX - choose < retval): raise_(SIGSEGV)
-        retval += choose
-    cdef ulong d = delta
+    cdef ulong retval = deglex_coeff(len_exps, delta, delta-1)
     for i in range(0,len_exps-1):
-        for j in range(0, exps[i]):
-            choose = choose_with_replacement(len_exps-i-1, d-j)
-            if choose == UINT64_MAX: raise_(SIGSEGV)
-            if (UINT64_MAX - choose < retval): raise_(SIGSEGV)
-            retval += choose
-        d -= exps[i]
+        retval += deglex_coeff(len_exps-i-1, exps[i], delta)
+        delta -= exps[i]
+    # no need to encode the last exponent, since we encoded the total degree first
+    return retval
+
+def encode_deglex_test(exps):
+    cdef ulong len_exps = len(exps)
+    cdef unsigned char * cexps = <unsigned char *> malloc(len_exps)
+    for i in range(len_exps): cexps[i] = exps[i]
+    cdef retval = encode_deglex(cexps, len_exps)
+    free(cexps)
     return retval
 
 # decoding never raises SIGSEGV because a number between 0 and UINT64_MAX
 # will always decode to some exponent vector
+#
+# Maybe these loops could be replaced with binary search for speed
 
 cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps) nogil:
     cdef ulong total_degree = 0
     cdef ulong choose
-    #while ind >= choose_with_replacement(len_exps, total_degree):
-    #    ind -= choose_with_replacement(len_exps, total_degree)
-    #    total_degree += 1
+    cdef ulong ind_saved = ind
     while True:
-        choose = choose_with_replacement(len_exps, total_degree)
-        if ind < choose: break
-        ind -= choose
+        if ind < deglex_coeff(len_exps, total_degree+1, total_degree): break
         total_degree += 1
+    ind -= deglex_coeff(len_exps, total_degree, total_degree-1)
+
     cdef ulong d = total_degree
     cdef unsigned char this_exp
     cdef int i
     for i in range(0, len_exps-1):
         this_exp = 0
-        #while ind >= choose_with_replacement(len_exps-i-1, d-this_exp):
-        #    ind -= choose_with_replacement(len_exps-i-1, d-this_exp)
-        #    this_exp += 1
         while True:
-            choose = choose_with_replacement(len_exps-i-1, d-this_exp)
-            if ind < choose: break
-            ind -= choose
+            if ind < deglex_coeff(len_exps-i-1, this_exp+1, d): break
             this_exp += 1
         exps[i] = this_exp
-        d -= this_exp
+        if this_exp > 0:
+            ind -= deglex_coeff(len_exps-i-1, this_exp, d)
+            d -= this_exp
     exps[len_exps-1] = d
+    if encode_deglex(exps, len_exps) != ind_saved:
+        raise_(SIGSEGV)
+
+def decode_deglex_test(ind, len_exps):
+    """
+    TESTS::
+        sage: from sage.rings.polynomial.multi_polynomial_flint import decode_deglex_test
+        sage: decode_deglex_test(517, 4)
+        [0, 2, 3, 4]
+        sage: decode_deglex_test(168, 4)
+        [1, 2, 3, 0]
+        sage: decode_deglex_test(803, 4)
+        [1, 2, 3, 4]
+    """
+    cdef unsigned char * cexps = <unsigned char *> malloc(len_exps)
+    decode_deglex(ind, cexps, len_exps)
+    retval = []
+    for i in range(len_exps): retval.append(cexps[i])
+    free(cexps)
+    return retval
 
 # Encode/decode to/from a single global buffer
 
@@ -538,10 +608,10 @@ def substitute_file(R, filename="bigflint.out"):
     r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
     cdef MPolynomialRing_flint parent = R
 
-    for i in range(12):
-        choose_with_replacement(i, 31)
-    for i in range(118):
-        choose_with_replacement(i, 6)
+    # We currently need to prefill the deglex table when running multi-threaded.
+    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
+    deglex_prefill_table(12, 31)
+    deglex_prefill_table(118, 6)
 
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
@@ -657,10 +727,10 @@ def sum_files(R, filename_list=[]):
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct) * nfiles)
     cdef FILE ** popen_FILE = <FILE **> malloc(sizeof(FILE *) * nfiles)
 
-    for i in range(12):
-        choose_with_replacement(i, 31)
-    for i in range(118):
-        choose_with_replacement(i, 6)
+    # We currently need to prefill the deglex table when running multi-threaded.
+    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
+    deglex_prefill_table(12, 31)
+    deglex_prefill_table(118, 6)
 
     for i, filename in enumerate(filename_list):
         if filename.endswith('.gz'):
