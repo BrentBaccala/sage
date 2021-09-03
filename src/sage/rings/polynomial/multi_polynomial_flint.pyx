@@ -852,7 +852,7 @@ cpdef read_and_decode_file_py(ulong arg1):
     cdef read_and_decode_file_data * data = <read_and_decode_file_data *> arg1;
     read_and_decode_file(data)
 
-def sum_files(R, filename_list=[]):
+def sum_files(R, filename_list=[], filename=None):
     cdef MPolynomialRing_flint parent = R
 
     cdef int nfiles = len(filename_list)
@@ -862,6 +862,32 @@ def sum_files(R, filename_list=[]):
     cdef load_from_decoded_buffer_struct * state = <load_from_decoded_buffer_struct *> malloc(sizeof(load_from_decoded_buffer_struct) * nfiles)
     cdef read_and_decode_file_data * data = <read_and_decode_file_data *> malloc(sizeof(read_and_decode_file_data) * nfiles)
     cdef FILE ** popen_FILE = <FILE **> malloc(sizeof(FILE *) * nfiles)
+
+    cdef encode_to_file_struct encoding_state
+    cdef FILE * encoding_FILE = NULL
+
+    if filename != None:
+        if filename.endswith('.gz'):
+            command = "gzip > {}".format(filename)
+            command_type = "w"
+            encoding_FILE = popen(command.encode(), command_type.encode())
+            if encoding_FILE == NULL:
+                raise Exception("popen() failed on gzip > " + filename)
+            encoding_state.fd = fileno(encoding_FILE)
+            if encoding_state.fd == -1:
+                raise Exception("fileno() failed on " + filename)
+        else:
+            encoding_state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+            if encoding_state.fd == 1:
+                raise Exception("creat() failed on " + filename)
+        encoding_state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        encoding_state.buffer_size = 1024
+        encoding_state.count = 0
+    else:
+        encoding_state.fd = -1
+        encoding_state.buffer = NULL
+        encoding_state.buffer_size = 0
+        encoding_state.count = 0
 
     # We currently need to prefill the deglex table when running multi-threaded.
     # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
@@ -873,19 +899,19 @@ def sum_files(R, filename_list=[]):
 
     threads = []
 
-    for i, filename in enumerate(filename_list):
-        if filename.endswith('.gz'):
-            command = "zcat {}".format(filename)
+    for i, input_filename in enumerate(filename_list):
+        if input_filename.endswith('.gz'):
+            command = "zcat {}".format(input_filename)
             command_type = "r"
             popen_FILE[i] = popen(command.encode(), command_type.encode())
             if popen_FILE[i] == NULL:
                 # XXX doesn't free linguring buffers
-                raise Exception("popen() failed on zcat " + filename)
+                raise Exception("popen() failed on zcat " + input_filename)
             data[i].fd = fileno(popen_FILE[i])
         else:
-            data[i].fd = open(filename.encode(), O_RDONLY)
+            data[i].fd = open(input_filename.encode(), O_RDONLY)
             if data[i].fd == 1:
-                raise Exception("open() failed on " + filename)
+                raise Exception("open() failed on " + input_filename)
             popen_FILE[i] = NULL
 
         state[i].buffer_size = 4 * 1024
@@ -909,10 +935,20 @@ def sum_files(R, filename_list=[]):
 
     with nogil:
         # XXX bits is hardwired
-        fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, output_function2a)
+        if encoding_state.buffer == NULL:
+            fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, output_function2a)
+        else:
+            fmpz_mpoly_abstract_add(<void *> &encoding_state, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, encode_to_file)
 
     for th in threads:
         th.join()
+
+    if encoding_state.buffer != NULL:
+        free(encoding_state.buffer)
+        if encoding_FILE != NULL:
+            fclose(encoding_FILE)
+        else:
+            close(encoding_state.fd)
 
     for i in range(nfiles):
         if popen_FILE[i] == NULL:
@@ -921,6 +957,7 @@ def sum_files(R, filename_list=[]):
             fclose(popen_FILE[i])
         free(state[i].exps)
         free(state[i].coeffs)
+
     free(popen_FILE)
     free(state)
     free(data)
