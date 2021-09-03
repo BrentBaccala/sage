@@ -219,8 +219,8 @@ cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps) nogil:
             ind -= deglex_coeff(len_exps-i-1, this_exp, d)
             d -= this_exp
     exps[len_exps-1] = d
-    if encode_deglex(exps, len_exps) != ind_saved:
-        raise_(SIGSEGV)
+    #if encode_deglex(exps, len_exps) != ind_saved:
+    #    raise_(SIGSEGV)
 
 def decode_deglex_test(ind, len_exps):
     """
