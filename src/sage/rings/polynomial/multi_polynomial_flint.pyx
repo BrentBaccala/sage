@@ -634,14 +634,27 @@ def substitute_file(R, filename="bigflint.out"):
     for th in of3_threads: th.join()
     of3_threads = []
 
+cdef ulong of2_count = 0
+
 cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
     global max_cdeg, max_vdeg
+    global of2_count
 
     if index == -1:
+        if last_radii_count > max_radii_count:
+            max_radii_count = last_radii_count
+        with gil:
+            status_string = "{}/{} vdeg={} cdeg={}".format(radii_blocks, max_radii_count, max_vdeg, max_cdeg)
+            status_string_encode = status_string.encode()
+            status_string_ptr = status_string_encode
         return status_string_ptr
+
+    if of2_count != index:
+        raise_(SIGSEGV)
+    of2_count += 1
 
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
 
@@ -690,10 +703,14 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
     return status_string_ptr
 
 cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    global of2_count
     output_function2(NULL, index, bits, exp, coeff, ctx)
     if ((index > 0) and (index % 1000000 == 0)) or (index == -1):
         with gil:
-            print("Output length", index, status_string)
+            if index == -1:
+                print("Output length", of2_count, status_string)
+            else:
+                print("Output length", index, status_string)
 
 def check_file(R, filename="bigflint.out"):
     cdef MPolynomialRing_flint parent = R
@@ -717,6 +734,124 @@ def check_file(R, filename="bigflint.out"):
     free(state)
     free(fptr)
 
+cdef extern from "<semaphore.h>" nogil:
+    ctypedef union sem_t:
+        pass
+    int sem_init(sem_t *sem, int pshared, unsigned int value)
+    int sem_wait(sem_t *sem)
+    int sem_trywait(sem_t *sem)
+    int sem_post(sem_t *sem)
+    int sem_destroy(sem_t *sem)
+
+# The buffer is divided into equal sized segments
+#
+# We use two semaphores - one to indicate that the load function can advance to the next segment,
+# and another to indicate that the load function is done with a segment and it can be freed.
+#
+# We initialize segments_free = num_segments and segments_ready_to_load = 0
+#
+# Once a segment has been completed decoded, we post segments_ready_to_load.  The load
+# function waits on it and advances into the next segment once it gets posted.
+#
+# Once a segment has been completed loaded, we post segments_free.  The decode function
+# waits on it and starts decoding the next segment once it gets posted.
+
+ctypedef struct load_from_decoded_buffer_struct:
+    sem_t segments_ready_to_load
+    sem_t segments_free
+    ulong * exps
+    fmpz * coeffs
+    ulong buffer_size
+    ulong num_segments
+
+cdef void load_from_decoded_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    cdef load_from_decoded_buffer_struct * state = <load_from_decoded_buffer_struct *> poly
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
+
+    if index % (state.buffer_size / state.num_segments) == 0:
+        sem_wait(& state.segments_ready_to_load)
+
+    mpoly_monomial_set(exp, state.exps + N*(index % state.buffer_size), N)
+    fmpz_set(coeff, state.coeffs + (index % state.buffer_size))
+
+    if (index+1) % (state.buffer_size / state.num_segments) == 0:
+        sem_post(& state.segments_free)
+
+ctypedef struct read_and_decode_file_data:
+    load_from_decoded_buffer_struct * loader_state
+    int fd
+    ulong buffer_size
+    flint_bitcnt_t bits
+    slong N
+
+cdef read_and_decode_file(read_and_decode_file_data * state):
+    cdef int eof = 0
+    cdef ulong index = 0
+    cdef int retval
+    cdef ulong * exp
+    cdef unsigned char * exps
+
+    cdef ulong * buffer = <ulong *> malloc(3 * state.buffer_size * sizeof(ulong))
+    cdef ulong count = 0
+    cdef ulong start = 0
+    cdef ulong trailing_bytes = 0
+
+    with nogil:
+        while not eof:
+
+            while not eof and index == count:
+                if trailing_bytes > 0:
+                    bcopy(buffer + 3 * (count - start), buffer, trailing_bytes)
+                start = count
+                retval = read(state.fd, (<char *>buffer) + trailing_bytes,
+                              3 * state.buffer_size * sizeof(ulong) - trailing_bytes)
+                if retval == -1:
+                    raise_(SIGSEGV)
+                if retval == 0:
+                    eof = 1
+                else:
+                    retval += trailing_bytes
+                    trailing_bytes = retval % (3 * sizeof(ulong))
+                    count += retval / (3 * sizeof(ulong))
+
+            while index < count:
+
+                if index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+                    sem_wait(& state.loader_state.segments_free)
+
+                exp = state.loader_state.exps + state.N*(index % state.loader_state.buffer_size)
+                exps = <unsigned char *> exp
+
+                # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
+                exp[16] = 0
+                decode_deglex(buffer[3*(index-start)], exps, 118)
+                decode_deglex(buffer[3*(index-start)+1], exps+ 118, 12)
+                if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
+                    raise_(SIGSEGV)
+
+                fmpz_set_si(state.loader_state.coeffs + (index % state.loader_state.buffer_size),
+                            buffer[3*(index-start)+2])
+
+                if (index+1) % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+                    sem_post(& state.loader_state.segments_ready_to_load)
+
+                index += 1
+
+            if eof:
+
+                if index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+                    sem_wait(& state.loader_state.segments_free)
+
+                fmpz_set_si(state.loader_state.coeffs + (index % state.loader_state.buffer_size), 0)
+
+                sem_post(& state.loader_state.segments_ready_to_load)
+
+        free(buffer)
+
+cpdef read_and_decode_file_py(ulong arg1):
+    cdef read_and_decode_file_data * data = <read_and_decode_file_data *> arg1;
+    read_and_decode_file(data)
+
 def sum_files(R, filename_list=[]):
     cdef MPolynomialRing_flint parent = R
 
@@ -724,13 +859,19 @@ def sum_files(R, filename_list=[]):
     if nfiles == 0: return
 
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * nfiles)
-    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct) * nfiles)
+    cdef load_from_decoded_buffer_struct * state = <load_from_decoded_buffer_struct *> malloc(sizeof(load_from_decoded_buffer_struct) * nfiles)
+    cdef read_and_decode_file_data * data = <read_and_decode_file_data *> malloc(sizeof(read_and_decode_file_data) * nfiles)
     cdef FILE ** popen_FILE = <FILE **> malloc(sizeof(FILE *) * nfiles)
 
     # We currently need to prefill the deglex table when running multi-threaded.
     # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
     deglex_prefill_table(12, 31)
     deglex_prefill_table(118, 6)
+
+    # bits is hardwired
+    N = mpoly_words_per_exp(8, parent._ctx.minfo)
+
+    threads = []
 
     for i, filename in enumerate(filename_list):
         if filename.endswith('.gz'):
@@ -740,30 +881,49 @@ def sum_files(R, filename_list=[]):
             if popen_FILE[i] == NULL:
                 # XXX doesn't free linguring buffers
                 raise Exception("popen() failed on zcat " + filename)
-            state[i].fd = fileno(popen_FILE[i])
+            data[i].fd = fileno(popen_FILE[i])
         else:
-            state[i].fd = open(filename.encode(), O_RDONLY)
-            if state[i].fd == 1:
+            data[i].fd = open(filename.encode(), O_RDONLY)
+            if data[i].fd == 1:
                 raise Exception("open() failed on " + filename)
             popen_FILE[i] = NULL
 
-        state[i].buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-        state[i].buffer_size = 1024
-        state[i].start = 0
-        state[i].count = 0
+        state[i].buffer_size = 4 * 1024
+        state[i].num_segments = 4
+        state[i].exps = <ulong *>malloc(N * state[i].buffer_size * sizeof(ulong))
+        state[i].coeffs = <fmpz *>malloc(state[i].buffer_size * sizeof(fmpz))
+        sem_init(& state[i].segments_ready_to_load, 0, 0)
+        sem_init(& state[i].segments_free, 0, 4)
+
+        data[i].loader_state = & state[i]
+        data[i].buffer_size = 1024
+        # XXX bits is hardwired
+        data[i].bits = 8
+        data[i].N = N
+
         fptr[i] = <fmpz_mpoly_struct *> & state[i]
 
+        th = threading.Thread(target = read_and_decode_file_py, args = (<ulong> &(data[i]),))
+        th.start()
+        threads.append(th)
+
     with nogil:
-        fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, decode_from_file, output_function2a)
+        # XXX bits is hardwired
+        fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, output_function2a)
+
+    for th in threads:
+        th.join()
 
     for i in range(nfiles):
         if popen_FILE[i] == NULL:
-            close(state.fd)
+            close(data[i].fd)
         else:
             fclose(popen_FILE[i])
-        free(state[i].buffer)
+        free(state[i].exps)
+        free(state[i].coeffs)
     free(popen_FILE)
     free(state)
+    free(data)
     free(fptr)
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
