@@ -865,6 +865,7 @@ def sum_files(R, filename_list=[], filename=None):
 
     cdef encode_to_file_struct encoding_state
     cdef FILE * encoding_FILE = NULL
+    cdef int j
 
     if filename != None:
         if filename.endswith('.gz'):
@@ -920,6 +921,9 @@ def sum_files(R, filename_list=[], filename=None):
         state[i].coeffs = <fmpz *>malloc(state[i].buffer_size * sizeof(fmpz))
         sem_init(& state[i].segments_ready_to_load, 0, 0)
         sem_init(& state[i].segments_free, 0, 4)
+
+        for j in range(state[i].buffer_size):
+            fmpz_init(state[i].coeffs + j)
 
         data[i].loader_state = & state[i]
         data[i].buffer_size = 1024
