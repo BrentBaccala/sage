@@ -34,12 +34,12 @@ from sage.libs.flint.fmpz_mpoly_factor cimport *
 from libc.stdlib cimport malloc, realloc, free
 from libc.stdint cimport UINT64_MAX
 from libc.signal cimport raise_, SIGSEGV
-from libc.stdio cimport fclose
-from posix.stdio cimport FILE, popen, fileno
+from posix.stdio cimport FILE, popen, fileno, pclose
 from posix.strings cimport bcopy
 from posix.fcntl cimport creat, open, O_RDONLY
 from posix.unistd cimport read, write, close, dup
 from posix.stat cimport S_IRWXU, S_IRWXG, S_IRWXO, S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH, S_IWOTH
+from posix.wait cimport WIFEXITED, WEXITSTATUS
 
 from sage.misc.sage_eval import sage_eval
 from sage.misc.misc_c import prod
@@ -392,9 +392,23 @@ def copy_to_file(p, filename="bigflint.out"):
     free(state)
 
 def copy_from_file(R, filename="bigflint.out"):
+    """
+    TESTS::
+        sage: from sage.rings.polynomial.multi_polynomial_flint import copy_from_file
+        sage: R.<x,y,z> = PolynomialRing(ZZ, implementation="FLINT")
+        sage: copy_from_file(R, filename=''.join(chr(randrange(65,91)) for _ in range(250)))
+        Traceback (most recent call last):
+        ...
+        Exception: open() failed
+        sage: copy_from_file(R, filename=''.join(chr(randrange(65,91)) for _ in range(250)) + '.gz')
+        Traceback (most recent call last):
+        ...
+        Exception: gzip exit status 1
+    """
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
     cdef FILE * popen_FILE
+    cdef int retval
     np._parent = R
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
@@ -418,7 +432,13 @@ def copy_from_file(R, filename="bigflint.out"):
     with nogil:
         fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_file, NULL)
     if filename.endswith('.gz'):
-        fclose(popen_FILE)
+        retval = pclose(popen_FILE)
+        if retval == -1:
+            raise Exception("pclose() failed")
+        elif not WIFEXITED(retval):
+            raise Exception("pclose() indicated abnormal exit of gzip")
+        elif WEXITSTATUS(retval) != 0:
+            raise Exception("gzip exit status " + str(WEXITSTATUS(retval)))
     else:
         close(state.fd)
     free(state.buffer)
@@ -485,8 +505,8 @@ cdef void output_block2(output_block_data * data):
 
         # I'd prefer to dup the file descriptor and close the buffered popen
         # to avoid any kind of conflict between the buffered file I/O and
-        # the raw I/O that we use, but fclose'ing a popen'ed FILE will
-        # wait for the process to terminate.
+        # the raw I/O that we use, but pclose'ing (or fclose'ing) a popen'ed FILE
+        # will wait for the process to terminate.
 
         state.fd = fileno(popen_FILE)
         if state.fd == -1:
@@ -502,7 +522,7 @@ cdef void output_block2(output_block_data * data):
             fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
 
         print("Finished write for radii", data.radii, "length", state.total, file=sys.stderr)
-        fclose(popen_FILE)
+        pclose(popen_FILE)
         free(state.buffer)
         free(state)
 
@@ -950,7 +970,7 @@ def sum_files(R, filename_list=[], filename=None):
     if encoding_state.buffer != NULL:
         free(encoding_state.buffer)
         if encoding_FILE != NULL:
-            fclose(encoding_FILE)
+            pclose(encoding_FILE)
         else:
             close(encoding_state.fd)
 
@@ -958,7 +978,7 @@ def sum_files(R, filename_list=[], filename=None):
         if popen_FILE[i] == NULL:
             close(data[i].fd)
         else:
-            fclose(popen_FILE[i])
+            pclose(popen_FILE[i])
         free(state[i].exps)
         free(state[i].coeffs)
 
