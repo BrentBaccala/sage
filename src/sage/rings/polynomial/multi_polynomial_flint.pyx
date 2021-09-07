@@ -380,7 +380,7 @@ def copy_to_file(p, filename="bigflint.out"):
     fptr[0] = <const fmpz_mpoly_struct *>np._poly
     cdef encode_to_file_struct * state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
     state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-    if state.fd == 1:
+    if state.fd == -1:
         raise Exception("creat() failed")
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
@@ -408,7 +408,7 @@ def copy_from_file(R, filename="bigflint.out"):
         state.fd = fileno(popen_FILE)
     else:
         state.fd = open(filename.encode(), O_RDONLY)
-        if state.fd == 1:
+        if state.fd == -1:
             raise Exception("open() failed")
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
@@ -616,7 +616,7 @@ def substitute_file(R, filename="bigflint.out"):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
     state.fd = open(filename.encode(), O_RDONLY)
-    if state.fd == 1:
+    if state.fd == -1:
         raise Exception("open() failed")
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
@@ -718,7 +718,7 @@ def check_file(R, filename="bigflint.out"):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
     state.fd = open(filename.encode(), O_RDONLY)
-    if state.fd == 1:
+    if state.fd == -1:
         raise Exception("open() failed")
     state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
@@ -879,7 +879,7 @@ def sum_files(R, filename_list=[], filename=None):
                 raise Exception("fileno() failed on " + filename)
         else:
             encoding_state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-            if encoding_state.fd == 1:
+            if encoding_state.fd == -1:
                 raise Exception("creat() failed on " + filename)
         encoding_state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
         encoding_state.buffer_size = 1024
@@ -911,7 +911,7 @@ def sum_files(R, filename_list=[], filename=None):
             data[i].fd = fileno(popen_FILE[i])
         else:
             data[i].fd = open(input_filename.encode(), O_RDONLY)
-            if data[i].fd == 1:
+            if data[i].fd == -1:
                 raise Exception("open() failed on " + input_filename)
             popen_FILE[i] = NULL
 
@@ -1847,7 +1847,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
             filename = "bigflint.out"
             state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-            if state.fd == 1:
+            if state.fd == -1:
                 raise Exception("creat() failed")
             state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
             state.buffer_size = 1024
