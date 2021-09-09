@@ -764,6 +764,7 @@ cdef extern from "<semaphore.h>" nogil:
     int sem_trywait(sem_t *sem)
     int sem_post(sem_t *sem)
     int sem_destroy(sem_t *sem)
+    int sem_getvalue(sem_t *sem, int *sval)
 
 # The buffer is divided into equal sized segments
 #
@@ -805,70 +806,83 @@ ctypedef struct read_and_decode_file_data:
     ulong buffer_size
     flint_bitcnt_t bits
     slong N
+    int eof
 
-cdef read_and_decode_file(read_and_decode_file_data * state):
-    cdef int eof = 0
-    cdef ulong index = 0
+    ulong * buffer
+    ulong count
+    ulong start
+    ulong index
+    ulong trailing_bytes
+
+cdef void read_and_decode_one_buffer(read_and_decode_file_data * state) nogil:
     cdef int retval
     cdef ulong * exp
     cdef unsigned char * exps
 
-    cdef ulong * buffer = <ulong *> malloc(3 * state.buffer_size * sizeof(ulong))
-    cdef ulong count = 0
-    cdef ulong start = 0
-    cdef ulong trailing_bytes = 0
+    while not state.eof and state.index == state.count:
+        if state.trailing_bytes > 0:
+            bcopy(state.buffer + 3 * (state.count - state.start), state.buffer, state.trailing_bytes)
+        state.start = state.count
+        retval = read(state.fd, (<char *>state.buffer) + state.trailing_bytes,
+                      3 * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
+        if retval == -1:
+            raise_(SIGSEGV)
+        if retval == 0:
+            state.eof = 1
+        else:
+            retval += state.trailing_bytes
+            state.trailing_bytes = retval % (3 * sizeof(ulong))
+            state.count += retval / (3 * sizeof(ulong))
+
+    while state.index < state.count:
+
+        if state.index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+            sem_wait(& state.loader_state.segments_free)
+
+        exp = state.loader_state.exps + state.N*(state.index % state.loader_state.buffer_size)
+        exps = <unsigned char *> exp
+
+        # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
+        exp[16] = 0
+        decode_deglex(state.buffer[3*(state.index-state.start)], exps, 118)
+        decode_deglex(state.buffer[3*(state.index-state.start)+1], exps+ 118, 12)
+        if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
+            raise_(SIGSEGV)
+
+        fmpz_set_si(state.loader_state.coeffs + (state.index % state.loader_state.buffer_size),
+                    state.buffer[3*(state.index-state.start)+2])
+
+        if (state.index+1) % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+            sem_post(& state.loader_state.segments_ready_to_load)
+
+        state.index += 1
+
+    if state.eof:
+
+        if state.index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
+            sem_wait(& state.loader_state.segments_free)
+
+        fmpz_set_si(state.loader_state.coeffs + (state.index % state.loader_state.buffer_size), 0)
+
+        sem_post(& state.loader_state.segments_ready_to_load)
+
+
+cdef read_and_decode_file(read_and_decode_file_data * state):
+    cdef int retval
+    cdef ulong * exp
+    cdef unsigned char * exps
+
+    state.eof = 0
+    state.trailing_bytes = 0
+    state.start = 0
+    state.count = 0
+    state.index = 0
+    state.buffer = <ulong *> malloc(3 * state.buffer_size * sizeof(ulong))
 
     with nogil:
-        while not eof:
-
-            while not eof and index == count:
-                if trailing_bytes > 0:
-                    bcopy(buffer + 3 * (count - start), buffer, trailing_bytes)
-                start = count
-                retval = read(state.fd, (<char *>buffer) + trailing_bytes,
-                              3 * state.buffer_size * sizeof(ulong) - trailing_bytes)
-                if retval == -1:
-                    raise_(SIGSEGV)
-                if retval == 0:
-                    eof = 1
-                else:
-                    retval += trailing_bytes
-                    trailing_bytes = retval % (3 * sizeof(ulong))
-                    count += retval / (3 * sizeof(ulong))
-
-            while index < count:
-
-                if index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
-                    sem_wait(& state.loader_state.segments_free)
-
-                exp = state.loader_state.exps + state.N*(index % state.loader_state.buffer_size)
-                exps = <unsigned char *> exp
-
-                # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-                exp[16] = 0
-                decode_deglex(buffer[3*(index-start)], exps, 118)
-                decode_deglex(buffer[3*(index-start)+1], exps+ 118, 12)
-                if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
-                    raise_(SIGSEGV)
-
-                fmpz_set_si(state.loader_state.coeffs + (index % state.loader_state.buffer_size),
-                            buffer[3*(index-start)+2])
-
-                if (index+1) % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
-                    sem_post(& state.loader_state.segments_ready_to_load)
-
-                index += 1
-
-            if eof:
-
-                if index % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
-                    sem_wait(& state.loader_state.segments_free)
-
-                fmpz_set_si(state.loader_state.coeffs + (index % state.loader_state.buffer_size), 0)
-
-                sem_post(& state.loader_state.segments_ready_to_load)
-
-        free(buffer)
+        while not state.eof:
+            read_and_decode_one_buffer(state)
+        free(state.buffer)
 
 cpdef read_and_decode_file_py(ulong arg1):
     cdef read_and_decode_file_data * data = <read_and_decode_file_data *> arg1;
