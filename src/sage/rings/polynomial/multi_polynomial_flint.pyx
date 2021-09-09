@@ -465,6 +465,8 @@ ctypedef struct output_block_data:
     flint_bitcnt_t bits
     fmpz_mpoly_ctx_t ctx
 
+radii_info = {}
+
 cdef void output_block2(output_block_data * data):
     global r1poly, r2poly, r12poly
     cdef MPolynomial_flint flintpoly
@@ -512,7 +514,7 @@ cdef void output_block2(output_block_data * data):
         if state.fd == -1:
             raise Exception("fileno() failed on " + filename)
 
-        print("Starting write for radii", data.radii, "lengths", data.count, "x", len(factor), file=sys.stderr)
+        radii_info[data.radii] = (data.count, len(factor))
 
         state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
         state.buffer_size = 1024
@@ -521,7 +523,7 @@ cdef void output_block2(output_block_data * data):
         with nogil:
             fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
 
-        print("Finished write for radii", data.radii, "length", state.total, file=sys.stderr)
+        radii_info[data.radii] += (state.total,)
         pclose(popen_FILE)
         free(state.buffer)
         free(state)
