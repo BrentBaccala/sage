@@ -4,6 +4,7 @@ Sparse multivariate polynomials over `\ZZ`, implemented using FLINT
 
 import sys
 import os
+import re
 
 import itertools
 
@@ -246,53 +247,106 @@ cdef ulong * output_buffer = NULL
 cdef ulong output_buffer_size = 0
 cdef ulong output_count = 0
 
-cdef void encode_to_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+ctypedef struct encoding_structure:
+    int words
+    int * variables
+
+cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global output_buffer, output_count, output_buffer_size
+    cdef encoding_structure * encoding = <encoding_structure *> ptr
     cdef unsigned char * exps = <unsigned char *> exp
+    cdef int nvarsencoded = 0
+    cdef int i
     cdef ulong v
-    cdef ulong c
+    if bits != 8:
+        # NotImplementedError, but we can't raise Python exceptions in a callback function
+        raise_(SIGSEGV)
     if index == 0:
         if output_buffer != NULL:
             free(output_buffer)
         output_buffer_size = 1024
-        output_buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
+        output_buffer = <ulong *>malloc(encoding.words * output_buffer_size * sizeof(ulong))
         output_count = 0
     if index == -1:
         return
     if index >= output_buffer_size:
         output_buffer_size += 1024
-        output_buffer = <ulong *>realloc(output_buffer, 3 * output_buffer_size * sizeof(ulong))
-    v = encode_deglex(exps, 118)
-    c = encode_deglex(exps + 118, 12)
-    output_buffer[3*output_count] = v
-    output_buffer[3*output_count+1] = c
-    output_buffer[3*output_count+2] = (<ulong *>coeff)[0]
+        output_buffer = <ulong *>realloc(output_buffer, encoding.words * output_buffer_size * sizeof(ulong))
+    for i in range(encoding.words):
+        if encoding.variables[i] > 0:
+            output_buffer[encoding.words*output_count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
+            nvarsencoded += encoding.variables[i]
+        else:
+            output_buffer[encoding.words*output_count + i] = (<ulong *>coeff)[0]
     output_count += 1
 
-cdef void decode_from_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    global output_buffer, output_count, output_buffer_size
+    cdef encoding_structure * encoding = <encoding_structure *> ptr
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef unsigned char * exps = <unsigned char *> exp
+    cdef int i
+    cdef int nvarsencoded = 0
+    if bits != 8:
+        # NotImplementedError, but we can't raise Python exceptions in a callback function
+        raise_(SIGSEGV)
     if index >= output_count:
         fmpz_set_ui(coeff, 0)
     else:
         # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-        exp[16] = 0
-        decode_deglex(output_buffer[3*index], exps, 118)
-        decode_deglex(output_buffer[3*index+1], exps+ 118, 12)
-        fmpz_set_si(coeff, output_buffer[3*index+2])
+        exp[N-1] = 0
+
+        for i in range(encoding.words):
+            if encoding.variables[i] > 0:
+                decode_deglex(output_buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
+                nvarsencoded += encoding.variables[i]
+            else:
+                fmpz_set_si(coeff, output_buffer[encoding.words*index + i])
+
 
 def copy_to_buffer(p):
+    """
+    TESTS::
+        sage: from sage.rings.polynomial.multi_polynomial_flint import copy_to_buffer, copy_from_buffer
+        sage: R.<x,y,z> = PolynomialRing(ZZ, implementation="FLINT", encoding="deglex64(3),sint64")
+        sage: p = x^2 + y^2 + z^2
+        sage: copy_to_buffer(p)
+        Traceback (most recent call last):
+        ...
+        NotImplementedError: copy_from_buffer currently only works with 8 bit exponents
+    """
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
-    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
-    fptr[0] = <const fmpz_mpoly_struct *>np._poly
-    fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+    cdef encoding_structure encoding
+    if np._poly.bits != 8:
+        raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
+    encoding.words = parent._encoding_words
+    encoding.variables = parent._encoding_variables
+    cdef void ** fptr = <void **>malloc(sizeof(void *))
+    fptr[0] = <void *>np._poly
+    fmpz_mpoly_abstract_add(<void *> &encoding, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
 
 def copy_from_buffer(R):
+    """
+    TESTS::
+        sage: from sage.rings.polynomial.multi_polynomial_flint import copy_to_buffer, copy_from_buffer
+        sage: R.<a,b,c,d,e,x,y,z> = PolynomialRing(ZZ, implementation="FLINT", order="lex", encoding="deglex64(8),sint64")
+        sage: p = x^2 + y^2 + z^2
+        sage: copy_to_buffer(p)
+        sage: copy_from_buffer(R) == p
+        True
+    """
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
+    cdef encoding_structure encoding
+    if np._poly.bits != 8:
+        raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
+    encoding.words = parent._encoding_words
+    encoding.variables = parent._encoding_variables
     np._parent = R
-    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
-    fmpz_mpoly_abstract_add(np._poly, <void **> fptr, 1, 8, parent._ctx, decode_from_buffer, NULL)
+    cdef void ** fptr = <void **>malloc(sizeof(void *))
+    fptr[0] = <void *> &encoding
+    fmpz_mpoly_abstract_add(np._poly, fptr, 1, 8, parent._ctx, decode_from_buffer, NULL)
     return np
 
 # Encode/decode to/from a file
@@ -412,6 +466,11 @@ def copy_from_file(R, filename="bigflint.out"):
     np._parent = R
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
+
+    # We currently need to prefill the deglex table when running multi-threaded.
+    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
+    deglex_prefill_table(12, 31)
+    deglex_prefill_table(118, 6)
 
     if filename.endswith('.gz'):
         command = "zcat {}".format(filename)
@@ -1005,7 +1064,7 @@ def sum_files(R, filename_list=[], filename=None):
 
 cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
-    def __init__(self, base_ring, n, names, order='degrevlex'):
+    def __init__(self, base_ring, n, names, order='degrevlex', encoding=None):
         """
         Construct a multivariate polynomial ring subject to the
         following conditions:
@@ -1109,6 +1168,36 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
 
         if base_ring != ZZ:
             raise NotImplementedError("FLINT base_ring must be ZZ")
+
+        if encoding != None:
+            encoded_vars = []
+            encoded_coeff = False
+            for encoding_item in encoding.split(','):
+                match = re.fullmatch('deglex64\\(([0-9]+)\\)', encoding_item)
+                if match:
+                    if encoded_coeff:
+                        raise NotImplementedError('FLINT coefficient encodings must currently be the last thing encoded')
+                    if int(match[1]) == 0:
+                        raise ValueError('FLINT variable encodings can not encode zero variables')
+                    encoded_vars.append(int(match[1]))
+                elif encoding_item == 'sint64':
+                    if encoded_coeff:
+                        raise ValueError('FLINT encodings must include exactly one coefficient encoding')
+                    encoded_coeff = True
+                else:
+                    raise ValueError('FLINT encodings must be deglex64 or sint64')
+            if not encoded_coeff:
+                raise ValueError('FLINT encodings must include exactly one coefficient encoding')
+            if sum(encoded_vars) != n:
+                raise ValueError('FLINT encodings must encode exactly the number of variables in the ring')
+            self._encoding_variables = <int *> malloc(sizeof(int) * (len(encoded_vars) + 1))
+            for i in range(len(encoded_vars)):
+                self._encoding_variables[i] = encoded_vars[i]
+            self._encoding_variables[len(encoded_vars)] = 0
+            self._encoding_words = len(encoded_vars) + 1
+        else:
+            self._encoding_words = 0
+            self._encoding_variables = NULL
 
         if order == 'degrevlex':
             fmpz_mpoly_ctx_init(self._ctx, n, ORD_DEGREVLEX)
