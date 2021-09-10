@@ -316,13 +316,13 @@ def copy_to_buffer(p):
         sage: copy_to_buffer(p)
         Traceback (most recent call last):
         ...
-        NotImplementedError: copy_from_buffer currently only works with 8 bit exponents
+        NotImplementedError: copy_to_buffer currently only works with 8 bit exponents
     """
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
     cdef encoding_structure encoding
     if np._poly.bits != 8:
-        raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
+        raise NotImplementedError("copy_to_buffer currently only works with 8 bit exponents")
     encoding.words = parent._encoding_words
     encoding.variables = parent._encoding_variables
     cdef void ** fptr = <void **>malloc(sizeof(void *))
@@ -349,7 +349,7 @@ def copy_from_buffer(R):
     np._parent = R
     cdef void ** fptr = <void **>malloc(sizeof(void *))
     fptr[0] = <void *> &encoding
-    fmpz_mpoly_abstract_add(np._poly, fptr, 1, 8, parent._ctx, decode_from_buffer, NULL)
+    fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_buffer, NULL)
     return np
 
 # Encode/decode to/from a file
