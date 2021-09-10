@@ -240,11 +240,64 @@ def decode_deglex_test(ind, len_exps):
     free(cexps)
     return retval
 
-# Encode/decode to/from a memory buffer
+# Encode/decode to/from a pointer to an address in memory
 
-ctypedef struct encoding_structure:
+ctypedef struct encoding_format:
     int words
     int * variables
+
+cdef void encode_to_mem(void * fmt, ulong * dest, flint_bitcnt_t bits, const ulong * exp, const fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    cdef encoding_format * format = <encoding_format *> fmt
+    cdef unsigned char * exps = <unsigned char *> exp
+    cdef int nvarsencoded = 0
+    cdef int i
+    if bits != 8:
+        # NotImplementedError, but we can't raise Python exceptions in a callback function
+        raise_(SIGSEGV)
+    if fmpz_is_mpz(coeff):
+        # Can't currently encode bigints
+        raise_(SIGSEGV)
+    for i in range(format.words):
+        if format.variables[i] > 0:
+            # ctx.minfo.rev indicates if our ordering is reversed in the mathematical sense (degrevlex)
+            # Since we list our variables from MSV to LSV, but our byte ordering is LSB to MSB, FLINT
+            # reversed the variables in the array if "not ctx.minfo.rev", so we need to reverse the
+            # order than we encode and decode if "not ctx.minfo.rev".
+            if ctx.minfo.rev:
+                dest[i] = encode_deglex(exps + nvarsencoded, format.variables[i])
+            else:
+                dest[i] = encode_deglex(exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
+            nvarsencoded += format.variables[i]
+        else:
+            dest[i] = (<ulong *>coeff)[0]
+
+cdef void decode_from_mem(void * fmt, const ulong * src, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    cdef encoding_format * format = <encoding_format *> fmt
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
+    cdef unsigned char * exps = <unsigned char *> exp
+    cdef int i
+    cdef int nvarsencoded = 0
+    if bits != 8:
+        # NotImplementedError, but we can't raise Python exceptions in a callback function
+        raise_(SIGSEGV)
+    # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
+    exp[N-1] = 0
+    for i in range(format.words):
+        if format.variables[i] > 0:
+            # see comment in encode_to_mem
+            if ctx.minfo.rev:
+                decode_deglex(src[i], exps + nvarsencoded, format.variables[i])
+            else:
+                decode_deglex(src[i], exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
+            nvarsencoded += format.variables[i]
+        else:
+            fmpz_set_si(coeff, src[i])
+
+
+# Encode/decode to/from a memory buffer
+
+ctypedef struct Buffer_structure:
+    encoding_format format
     ulong * buffer
     ulong buffer_size
     ulong count
@@ -253,32 +306,32 @@ cdef class Buffer:
     cdef MPolynomialRing_flint R
     cdef Py_ssize_t shape[2]
     cdef Py_ssize_t strides[2]
-    cdef encoding_structure encoding
+    cdef Buffer_structure buffer
 
     def __init__(self, R):
         self.R = R
-        self.encoding.words = self.R._encoding_words
-        self.encoding.variables = self.R._encoding_variables
-        self.encoding.buffer = NULL
-        self.encoding.buffer_size = 0
-        self.encoding.count = 0
+        self.buffer.format.words = self.R._encoding_words
+        self.buffer.format.variables = self.R._encoding_variables
+        self.buffer.buffer = NULL
+        self.buffer.buffer_size = 0
+        self.buffer.count = 0
 
     def __dealloc__(self):
-        if (self.encoding.buffer != NULL):
-            free(self.encoding.buffer)
+        if (self.buffer.buffer != NULL):
+            free(self.buffer.buffer)
 
     def __getbuffer__(self, Py_buffer *buffer, int flags):
 
-        self.shape[0] = self.encoding.count
-        self.shape[1] = self.encoding.words
+        self.shape[0] = self.buffer.count
+        self.shape[1] = self.buffer.format.words
         self.strides[1] = sizeof(ulong)
-        self.strides[0] = self.encoding.words * sizeof(ulong)
+        self.strides[0] = self.buffer.format.words * sizeof(ulong)
 
-        buffer.buf = <char *> self.encoding.buffer
+        buffer.buf = <char *> self.buffer.buffer
         buffer.format = 'q'                     # native aligned signed 64-bit integer
         buffer.internal = NULL
         buffer.itemsize = sizeof(ulong)
-        buffer.len = self.encoding.count * self.encoding.words * sizeof(ulong)
+        buffer.len = self.buffer.count * self.buffer.format.words * sizeof(ulong)
         buffer.ndim = 2
         buffer.obj = self
         buffer.readonly = 1
@@ -290,69 +343,31 @@ cdef class Buffer:
         pass
 
 cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef encoding_structure * encoding = <encoding_structure *> ptr
-    cdef unsigned char * exps = <unsigned char *> exp
-    cdef int nvarsencoded = 0
-    cdef int i
-    cdef ulong v
-    if bits != 8:
-        # NotImplementedError, but we can't raise Python exceptions in a callback function
-        raise_(SIGSEGV)
+    cdef Buffer_structure * buffer = <Buffer_structure *> ptr
+
     if index == 0:
-        if encoding.buffer != NULL:
-            free(encoding.buffer)
-        encoding.buffer_size = 1024
-        encoding.buffer = <ulong *>malloc(encoding.words * encoding.buffer_size * sizeof(ulong))
-        encoding.count = 0
+        if buffer.buffer != NULL:
+            free(buffer.buffer)
+        buffer.buffer_size = 1024
+        buffer.buffer = <ulong *>malloc(buffer.format.words * buffer.buffer_size * sizeof(ulong))
+        buffer.count = 0
     if index == -1:
         return
-    if fmpz_is_mpz(coeff):
-        # Can't currently encode bigints
-        raise_(SIGSEGV)
-    if index >= encoding.buffer_size:
-        encoding.buffer_size += 1024
-        encoding.buffer = <ulong *>realloc(encoding.buffer, encoding.words * encoding.buffer_size * sizeof(ulong))
-    for i in range(encoding.words):
-        if encoding.variables[i] > 0:
-            # ctx.minfo.rev indicates if our ordering is reversed in the mathematical sense (degrevlex)
-            # Since we list our variables from MSV to LSV, but our byte ordering is LSB to MSB, FLINT
-            # reversed the variables in the array if "not ctx.minfo.rev", so we need to reverse the
-            # order than we encode and decode if "not ctx.minfo.rev".
-            if ctx.minfo.rev:
-                encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
-            else:
-                encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + ctx.minfo.nvars - nvarsencoded - encoding.variables[i], encoding.variables[i], rev=1)
-            nvarsencoded += encoding.variables[i]
-        else:
-            encoding.buffer[encoding.words*encoding.count + i] = (<ulong *>coeff)[0]
-    encoding.count += 1
+    if index >= buffer.buffer_size:
+        buffer.buffer_size += 1024
+        buffer.buffer = <ulong *>realloc(buffer.buffer, buffer.format.words * buffer.buffer_size * sizeof(ulong))
+
+    encode_to_mem(& buffer.format, buffer.buffer + buffer.format.words*buffer.count, bits, exp, coeff, ctx)
+
+    buffer.count += 1
 
 cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef encoding_structure * encoding = <encoding_structure *> ptr
-    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
-    cdef unsigned char * exps = <unsigned char *> exp
-    cdef int i
-    cdef int nvarsencoded = 0
-    if bits != 8:
-        # NotImplementedError, but we can't raise Python exceptions in a callback function
-        raise_(SIGSEGV)
-    if index >= encoding.count:
+    cdef Buffer_structure * buffer = <Buffer_structure *> ptr
+
+    if index >= buffer.count:
         fmpz_set_ui(coeff, 0)
     else:
-        # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-        exp[N-1] = 0
-
-        for i in range(encoding.words):
-            if encoding.variables[i] > 0:
-                # see comment in encode_to_buffer
-                if ctx.minfo.rev:
-                    decode_deglex(encoding.buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
-                else:
-                    decode_deglex(encoding.buffer[encoding.words*index + i], exps + ctx.minfo.nvars - nvarsencoded - encoding.variables[i], encoding.variables[i], rev=1)
-                nvarsencoded += encoding.variables[i]
-            else:
-                fmpz_set_si(coeff, encoding.buffer[encoding.words*index + i])
-
+        decode_from_mem(& buffer.format, buffer.buffer + buffer.format.words*index, bits, exp, coeff, ctx)
 
 def copy_to_buffer(p):
     """
@@ -373,7 +388,7 @@ def copy_to_buffer(p):
     fptr[0] = <void *>np._poly
     buffer = Buffer(parent)
     cdef Buffer cbuffer = buffer
-    fmpz_mpoly_abstract_add(<void *> &cbuffer.encoding, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+    fmpz_mpoly_abstract_add(<void *> &cbuffer.buffer, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
     return buffer
 
 def copy_from_buffer(buffer):
@@ -426,7 +441,7 @@ def copy_from_buffer(buffer):
         raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
     np._parent = parent
     cdef void ** fptr = <void **>malloc(sizeof(void *))
-    fptr[0] = <void *> &cbuffer.encoding
+    fptr[0] = <void *> &cbuffer.buffer
     fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_buffer, NULL)
     return np
 
