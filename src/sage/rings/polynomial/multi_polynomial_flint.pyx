@@ -453,36 +453,30 @@ def copy_from_buffer(buffer):
 # Global variables, so we can only write to one file at a time :-(
 
 ctypedef struct encode_to_file_struct:
+    encoding_format format
     int fd
     ulong * buffer
     ulong buffer_size
     ulong count
     ulong total
 
-cdef void encode_to_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    cdef encode_to_file_struct * state = <encode_to_file_struct *> poly
-    cdef unsigned char * exps = <unsigned char *> exp
-    cdef ulong v
-    cdef ulong c
+cdef void encode_to_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    cdef encode_to_file_struct * state = <encode_to_file_struct *> ptr
     if index == -1:
         if state.count != 0:
-            write(state.fd, state.buffer, 3 * state.count * sizeof(ulong))
+            write(state.fd, state.buffer, state.format.words * state.count * sizeof(ulong))
         return
     elif index == 0:
         state.total = 0
     elif index % state.buffer_size == 0:
-        write(state.fd, state.buffer, 3 * state.buffer_size * sizeof(ulong))
+        write(state.fd, state.buffer, state.format.words * state.buffer_size * sizeof(ulong))
         state.count = 0
-    v = encode_deglex(exps, 118)
-    c = encode_deglex(exps + 118, 12)
-    if fmpz_is_mpz(coeff): raise_(SIGSEGV)
-    state.buffer[3*state.count] = v
-    state.buffer[3*state.count+1] = c
-    state.buffer[3*state.count+2] = (<ulong *>coeff)[0]
+    encode_to_mem(& state.format, state.buffer + state.format.words*state.count, bits, exp, coeff, ctx)
     state.count += 1
     state.total += 1
 
 ctypedef struct decode_from_file_struct:
+    encoding_format format
     int fd
     ulong * buffer
     ulong buffer_size
@@ -490,8 +484,8 @@ ctypedef struct decode_from_file_struct:
     ulong start
     ulong trailing_bytes
 
-cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef decode_from_file_struct * state = <decode_from_file_struct *> poly
+cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> ptr
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
 
@@ -499,26 +493,20 @@ cdef void decode_from_file(void * poly, slong index, flint_bitcnt_t bits, ulong 
         if index == 0:
             state.trailing_bytes = 0
         if state.trailing_bytes > 0:
-            bcopy(state.buffer + 3 * (state.count - state.start), state.buffer, state.trailing_bytes)
+            bcopy(state.buffer + state.format.words * (state.count - state.start), state.buffer, state.trailing_bytes)
         state.start = state.count
         retval = read(state.fd, (<char *>state.buffer) + state.trailing_bytes,
-                      3 * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
+                      state.format.words * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
         if retval == -1:
             raise_(SIGSEGV)
         if retval == 0:
             fmpz_set_si(coeff, 0)
             return
         retval += state.trailing_bytes
-        state.trailing_bytes = retval % (3 * sizeof(ulong))
-        state.count += retval / (3 * sizeof(ulong))
+        state.trailing_bytes = retval % (state.format.words * sizeof(ulong))
+        state.count += retval / (state.format.words * sizeof(ulong))
 
-    # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-    exp[16] = 0
-    decode_deglex(state.buffer[3*(index-state.start)], exps, 118)
-    decode_deglex(state.buffer[3*(index-state.start)+1], exps+ 118, 12)
-    fmpz_set_si(coeff, state.buffer[3*(index-state.start)+2])
-    if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
-        raise_(SIGSEGV)
+    decode_from_mem(& state.format, state.buffer + state.format.words*(index-state.start), bits, exp, coeff, ctx)
 
 def copy_to_file(p, filename="bigflint.out"):
     cdef MPolynomial_flint np = p
@@ -526,11 +514,13 @@ def copy_to_file(p, filename="bigflint.out"):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     fptr[0] = <const fmpz_mpoly_struct *>np._poly
     cdef encode_to_file_struct * state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+    state.format.words = parent._encoding_words
+    state.format.variables = parent._encoding_variables
     state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
     if state.fd == -1:
         raise Exception("creat() failed")
-    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
+    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
     state.count = 0
     with nogil:
         fmpz_mpoly_abstract_add(state, <void **> fptr, 1, 8, parent._ctx, NULL, encode_to_file)
@@ -541,7 +531,7 @@ def copy_to_file(p, filename="bigflint.out"):
 def copy_from_file(R, filename="bigflint.out"):
     """
     TESTS::
-        sage: from sage.rings.polynomial.multi_polynomial_flint import copy_from_file
+        sage: from sage.rings.polynomial.multi_polynomial_flint import copy_to_file, copy_from_file
         sage: R.<x,y,z> = PolynomialRing(ZZ, implementation="FLINT")
         sage: copy_from_file(R, filename=''.join(chr(randrange(65,91)) for _ in range(250)))
         Traceback (most recent call last):
@@ -551,6 +541,15 @@ def copy_from_file(R, filename="bigflint.out"):
         Traceback (most recent call last):
         ...
         Exception: gzip exit status 1
+
+        sage: R.<a,b,c,d,e,x,y,z> = PolynomialRing(ZZ, implementation="FLINT", order="lex", encoding="deglex64(8),sint64")
+        sage: p = x^2 + y^2 + z^2
+        sage: filename='/tmp/' + ''.join(chr(randrange(65,91)) for _ in range(250))
+        sage: copy_to_file(p, filename=filename)
+        sage: p2 = copy_from_file(R, filename=filename)
+        sage: p == p2
+        True
+        sage: os.unlink(filename)
     """
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
@@ -559,6 +558,9 @@ def copy_from_file(R, filename="bigflint.out"):
     np._parent = R
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
+
+    state.format.words = parent._encoding_words
+    state.format.variables = parent._encoding_variables
 
     # We currently need to prefill the deglex table when running multi-threaded.
     # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
@@ -576,8 +578,8 @@ def copy_from_file(R, filename="bigflint.out"):
         state.fd = open(filename.encode(), O_RDONLY)
         if state.fd == -1:
             raise Exception("open() failed")
-    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
     state.buffer_size = 1024
+    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
     state.start = 0
     state.count = 0
     fptr[0] = <fmpz_mpoly_struct *> state
