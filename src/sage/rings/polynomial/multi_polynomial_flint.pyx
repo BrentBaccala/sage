@@ -269,6 +269,9 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         output_count = 0
     if index == -1:
         return
+    if fmpz_is_mpz(coeff):
+        # Can't currently encode bigints
+        raise_(SIGSEGV)
     if index >= output_buffer_size:
         output_buffer_size += 1024
         output_buffer = <ulong *>realloc(output_buffer, encoding.words * output_buffer_size * sizeof(ulong))
@@ -355,9 +358,6 @@ def copy_from_buffer(R):
 # the GIL, so they can be used multi-threaded.
 #
 # Global variables, so we can only write to one file at a time :-(
-
-cdef int fmpz_is_mpz(fmpz_t x):
-    return (((<ulong *>x)[0]) >> (FLINT_BITS - 2)) == 1
 
 ctypedef struct encode_to_file_struct:
     int fd

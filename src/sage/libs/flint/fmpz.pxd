@@ -5,6 +5,9 @@ from libc.stdio cimport FILE
 from sage.libs.gmp.types cimport mpz_t
 from sage.libs.flint.types cimport *
 
+cdef inline int fmpz_is_mpz(fmpz_t x) nogil:
+    return (((<ulong *>x)[0]) >> (FLINT_BITS - 2)) == 1
+
 # flint/fmpz.h
 cdef extern from "flint_wrap.h" nogil:
     # Memory management
