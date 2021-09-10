@@ -751,7 +751,7 @@ def _single_variate(base_ring, name, sparse=None, implementation=None, order=Non
     return R
 
 
-def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementation=None):
+def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementation=None, **kwds):
     if sparse is None:
         sparse = True
     if not sparse:
@@ -762,7 +762,7 @@ def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementat
     order = TermOrder(order, n)
 
     # "implementation" must be last
-    key = [base_ring, names, n, order, implementation]
+    key = [base_ring, names, n, order] + list(kwds.items()) + [implementation]
     R = _get_from_cache(key)
     if R is not None:
         return R
@@ -774,7 +774,7 @@ def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementat
     if implementation is None or implementation == "singular":
         from sage.rings.polynomial.multi_polynomial_libsingular import MPolynomialRing_libsingular
         try:
-            R = MPolynomialRing_libsingular(base_ring, n, names, order)
+            R = MPolynomialRing_libsingular(base_ring, n, names, order, **kwds)
         except (TypeError, NotImplementedError):
             if implementation is not None:
                 raise
@@ -784,7 +784,7 @@ def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementat
     if implementation == "FLINT":
         from sage.rings.polynomial.multi_polynomial_flint import MPolynomialRing_flint
         try:
-            R = MPolynomialRing_flint(base_ring, n, names, order)
+            R = MPolynomialRing_flint(base_ring, n, names, order, **kwds)
         except:
             raise
         else:
@@ -803,7 +803,7 @@ def _multi_variate(base_ring, names, sparse=None, order="degrevlex", implementat
             constructor = multi_polynomial_ring.MPolynomialRing_polydict_domain
         else:
             constructor = multi_polynomial_ring.MPolynomialRing_polydict
-        R = constructor(base_ring, n, names, order)
+        R = constructor(base_ring, n, names, order, **kwds)
 
     if R is None:
         raise ValueError("unknown implementation %r for multivariate polynomial rings" % (implementation,))
