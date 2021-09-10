@@ -172,16 +172,16 @@ cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
 
 # encoding raises SIGSEGV in an overflow situation
 
-cdef ulong encode_deglex(unsigned char * exps, ulong len_exps) nogil:
+cdef ulong encode_deglex(unsigned char * exps, ulong len_exps, int rev=0) nogil:
     cdef ulong delta = 0
     cdef ulong i
-    cdef ulong j
-    cdef ulong choose
+    cdef ulong exp
     for i in range(len_exps): delta += exps[i]
     cdef ulong retval = deglex_coeff(len_exps, delta, delta-1)
     for i in range(0,len_exps-1):
-        retval += deglex_coeff(len_exps-i-1, exps[i], delta)
-        delta -= exps[i]
+        exp = exps[i] if not rev else exps[len_exps - i - 1]
+        retval += deglex_coeff(len_exps-i-1, exp, delta)
+        delta -= exp
     # no need to encode the last exponent, since we encoded the total degree first
     return retval
 
@@ -198,9 +198,8 @@ def encode_deglex_test(exps):
 #
 # Maybe these loops could be replaced with binary search for speed
 
-cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps) nogil:
+cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps, int rev=0) nogil:
     cdef ulong total_degree = 0
-    cdef ulong choose
     cdef ulong ind_saved = ind
     while True:
         if ind < deglex_coeff(len_exps, total_degree+1, total_degree): break
@@ -215,11 +214,11 @@ cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps) nogil:
         while True:
             if ind < deglex_coeff(len_exps-i-1, this_exp+1, d): break
             this_exp += 1
-        exps[i] = this_exp
+        exps[i if not rev else len_exps-i-1] = this_exp
         if this_exp > 0:
             ind -= deglex_coeff(len_exps-i-1, this_exp, d)
             d -= this_exp
-    exps[len_exps-1] = d
+    exps[len_exps-1 if not rev else 0] = d
     #if encode_deglex(exps, len_exps) != ind_saved:
     #    raise_(SIGSEGV)
 
@@ -315,7 +314,14 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         encoding.buffer = <ulong *>realloc(encoding.buffer, encoding.words * encoding.buffer_size * sizeof(ulong))
     for i in range(encoding.words):
         if encoding.variables[i] > 0:
-            encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
+            # ctx.minfo.rev indicates if our ordering is reversed in the mathematical sense (degrevlex)
+            # Since we list our variables from MSV to LSV, but our byte ordering is LSB to MSB, FLINT
+            # reversed the variables in the array if "not ctx.minfo.rev", so we need to reverse the
+            # order than we encode and decode if "not ctx.minfo.rev".
+            if ctx.minfo.rev:
+                encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
+            else:
+                encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + ctx.minfo.nvars - nvarsencoded - encoding.variables[i], encoding.variables[i], rev=1)
             nvarsencoded += encoding.variables[i]
         else:
             encoding.buffer[encoding.words*encoding.count + i] = (<ulong *>coeff)[0]
@@ -338,7 +344,11 @@ cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong
 
         for i in range(encoding.words):
             if encoding.variables[i] > 0:
-                decode_deglex(encoding.buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
+                # see comment in encode_to_buffer
+                if ctx.minfo.rev:
+                    decode_deglex(encoding.buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
+                else:
+                    decode_deglex(encoding.buffer[encoding.words*index + i], exps + ctx.minfo.nvars - nvarsencoded - encoding.variables[i], encoding.variables[i], rev=1)
                 nvarsencoded += encoding.variables[i]
             else:
                 fmpz_set_si(coeff, encoding.buffer[encoding.words*index + i])
@@ -377,9 +387,9 @@ def copy_from_buffer(buffer):
         True
         sage: import numpy
         sage: numpy.asarray(buffer)
-        array([[29,  1],
-               [36,  1],
-               [44,  1]], dtype=int64)
+        array([[14,  1],
+               [11,  1],
+               [ 9,  1]], dtype=int64)
 
         sage: R.<a,b,c,d,e,x,y,z> = PolynomialRing(ZZ, implementation="FLINT", order="lex", \
         ....:                                      encoding="deglex64(5),deglex64(3),sint64")
@@ -388,9 +398,26 @@ def copy_from_buffer(buffer):
         sage: copy_from_buffer(buffer) == p
         True
         sage: numpy.asarray(buffer)
-        array([[11,  0,  1],
-               [15,  0,  1],
-               [20,  0,  1]], dtype=int64)
+        array([[0,  9,  1],
+               [0,  6,  1],
+               [0,  4,  1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(x))
+        array([[0, 3, 1]], dtype=int64)
+
+    Check that this is degree lexicographic encoding::
+
+        sage: numpy.asarray(copy_to_buffer(x^2))
+        array([[0, 9, 1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(x*y))
+        array([[0, 8, 1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(x*z))
+        array([[0, 7, 1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(y^2))
+        array([[0, 6, 1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(y*z))
+        array([[0, 5, 1]], dtype=int64)
+        sage: numpy.asarray(copy_to_buffer(z^2))
+        array([[0, 4, 1]], dtype=int64)
     """
     cdef Buffer cbuffer = buffer
     cdef MPolynomialRing_flint parent = cbuffer.R
