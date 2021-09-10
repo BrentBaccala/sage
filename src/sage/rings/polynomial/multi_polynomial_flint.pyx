@@ -241,18 +241,56 @@ def decode_deglex_test(ind, len_exps):
     free(cexps)
     return retval
 
-# Encode/decode to/from a single global buffer
-
-cdef ulong * output_buffer = NULL
-cdef ulong output_buffer_size = 0
-cdef ulong output_count = 0
+# Encode/decode to/from a memory buffer
 
 ctypedef struct encoding_structure:
     int words
     int * variables
+    ulong * buffer
+    ulong buffer_size
+    ulong count
+
+cdef class Buffer:
+    cdef MPolynomialRing_flint R
+    cdef Py_ssize_t shape[2]
+    cdef Py_ssize_t strides[2]
+    cdef encoding_structure encoding
+
+    def __init__(self, R):
+        self.R = R
+        self.encoding.words = self.R._encoding_words
+        self.encoding.variables = self.R._encoding_variables
+        self.encoding.buffer = NULL
+        self.encoding.buffer_size = 0
+        self.encoding.count = 0
+
+    def __dealloc__(self):
+        if (self.encoding.buffer != NULL):
+            free(self.encoding.buffer)
+
+    def __getbuffer__(self, Py_buffer *buffer, int flags):
+
+        self.shape[0] = self.encoding.count
+        self.shape[1] = self.encoding.words
+        self.strides[1] = sizeof(ulong)
+        self.strides[0] = self.encoding.words * sizeof(ulong)
+
+        buffer.buf = <char *> self.encoding.buffer
+        buffer.format = 'q'                     # native aligned signed 64-bit integer
+        buffer.internal = NULL
+        buffer.itemsize = sizeof(ulong)
+        buffer.len = self.encoding.count * self.encoding.words * sizeof(ulong)
+        buffer.ndim = 2
+        buffer.obj = self
+        buffer.readonly = 1
+        buffer.shape = self.shape
+        buffer.strides = self.strides
+        buffer.suboffsets = NULL
+
+    def __releasebuffer__(self, Py_buffer *buffer):
+        pass
 
 cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    global output_buffer, output_count, output_buffer_size
     cdef encoding_structure * encoding = <encoding_structure *> ptr
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int nvarsencoded = 0
@@ -262,29 +300,28 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         # NotImplementedError, but we can't raise Python exceptions in a callback function
         raise_(SIGSEGV)
     if index == 0:
-        if output_buffer != NULL:
-            free(output_buffer)
-        output_buffer_size = 1024
-        output_buffer = <ulong *>malloc(encoding.words * output_buffer_size * sizeof(ulong))
-        output_count = 0
+        if encoding.buffer != NULL:
+            free(encoding.buffer)
+        encoding.buffer_size = 1024
+        encoding.buffer = <ulong *>malloc(encoding.words * encoding.buffer_size * sizeof(ulong))
+        encoding.count = 0
     if index == -1:
         return
     if fmpz_is_mpz(coeff):
         # Can't currently encode bigints
         raise_(SIGSEGV)
-    if index >= output_buffer_size:
-        output_buffer_size += 1024
-        output_buffer = <ulong *>realloc(output_buffer, encoding.words * output_buffer_size * sizeof(ulong))
+    if index >= encoding.buffer_size:
+        encoding.buffer_size += 1024
+        encoding.buffer = <ulong *>realloc(encoding.buffer, encoding.words * encoding.buffer_size * sizeof(ulong))
     for i in range(encoding.words):
         if encoding.variables[i] > 0:
-            output_buffer[encoding.words*output_count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
+            encoding.buffer[encoding.words*encoding.count + i] = encode_deglex(exps + nvarsencoded, encoding.variables[i])
             nvarsencoded += encoding.variables[i]
         else:
-            output_buffer[encoding.words*output_count + i] = (<ulong *>coeff)[0]
-    output_count += 1
+            encoding.buffer[encoding.words*encoding.count + i] = (<ulong *>coeff)[0]
+    encoding.count += 1
 
 cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    global output_buffer, output_count, output_buffer_size
     cdef encoding_structure * encoding = <encoding_structure *> ptr
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef unsigned char * exps = <unsigned char *> exp
@@ -293,7 +330,7 @@ cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong
     if bits != 8:
         # NotImplementedError, but we can't raise Python exceptions in a callback function
         raise_(SIGSEGV)
-    if index >= output_count:
+    if index >= encoding.count:
         fmpz_set_ui(coeff, 0)
     else:
         # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
@@ -301,10 +338,10 @@ cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong
 
         for i in range(encoding.words):
             if encoding.variables[i] > 0:
-                decode_deglex(output_buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
+                decode_deglex(encoding.buffer[encoding.words*index + i], exps + nvarsencoded, encoding.variables[i])
                 nvarsencoded += encoding.variables[i]
             else:
-                fmpz_set_si(coeff, output_buffer[encoding.words*index + i])
+                fmpz_set_si(coeff, encoding.buffer[encoding.words*index + i])
 
 
 def copy_to_buffer(p):
@@ -320,35 +357,49 @@ def copy_to_buffer(p):
     """
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
-    cdef encoding_structure encoding
     if np._poly.bits != 8:
         raise NotImplementedError("copy_to_buffer currently only works with 8 bit exponents")
-    encoding.words = parent._encoding_words
-    encoding.variables = parent._encoding_variables
     cdef void ** fptr = <void **>malloc(sizeof(void *))
     fptr[0] = <void *>np._poly
-    fmpz_mpoly_abstract_add(<void *> &encoding, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+    buffer = Buffer(parent)
+    cdef Buffer cbuffer = buffer
+    fmpz_mpoly_abstract_add(<void *> &cbuffer.encoding, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+    return buffer
 
-def copy_from_buffer(R):
+def copy_from_buffer(buffer):
     """
     TESTS::
         sage: from sage.rings.polynomial.multi_polynomial_flint import copy_to_buffer, copy_from_buffer
         sage: R.<a,b,c,d,e,x,y,z> = PolynomialRing(ZZ, implementation="FLINT", order="lex", encoding="deglex64(8),sint64")
         sage: p = x^2 + y^2 + z^2
-        sage: copy_to_buffer(p)
-        sage: copy_from_buffer(R) == p
+        sage: buffer = copy_to_buffer(p)
+        sage: copy_from_buffer(buffer) == p
         True
+        sage: import numpy
+        sage: numpy.asarray(buffer)
+        array([[29,  1],
+               [36,  1],
+               [44,  1]], dtype=int64)
+
+        sage: R.<a,b,c,d,e,x,y,z> = PolynomialRing(ZZ, implementation="FLINT", order="lex", \
+        ....:                                      encoding="deglex64(5),deglex64(3),sint64")
+        sage: p = x^2 + y^2 + z^2
+        sage: buffer = copy_to_buffer(p)
+        sage: copy_from_buffer(buffer) == p
+        True
+        sage: numpy.asarray(buffer)
+        array([[11,  0,  1],
+               [15,  0,  1],
+               [20,  0,  1]], dtype=int64)
     """
-    cdef MPolynomialRing_flint parent = R
+    cdef Buffer cbuffer = buffer
+    cdef MPolynomialRing_flint parent = cbuffer.R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
-    cdef encoding_structure encoding
     if np._poly.bits != 8:
         raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
-    encoding.words = parent._encoding_words
-    encoding.variables = parent._encoding_variables
-    np._parent = R
+    np._parent = parent
     cdef void ** fptr = <void **>malloc(sizeof(void *))
-    fptr[0] = <void *> &encoding
+    fptr[0] = <void *> &cbuffer.encoding
     fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_buffer, NULL)
     return np
 
