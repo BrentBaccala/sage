@@ -242,12 +242,7 @@ def decode_deglex_test(ind, len_exps):
 
 # Encode/decode to/from a pointer to an address in memory
 
-ctypedef struct encoding_format:
-    int words
-    int * variables
-
-cdef void encode_to_mem(void * fmt, ulong * dest, flint_bitcnt_t bits, const ulong * exp, const fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef encoding_format * format = <encoding_format *> fmt
+cdef void encode_to_mem(encoding_format * format, ulong * dest, flint_bitcnt_t bits, const ulong * exp, const fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int nvarsencoded = 0
     cdef int i
@@ -271,8 +266,7 @@ cdef void encode_to_mem(void * fmt, ulong * dest, flint_bitcnt_t bits, const ulo
         else:
             dest[i] = (<ulong *>coeff)[0]
 
-cdef void decode_from_mem(void * fmt, const ulong * src, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef encoding_format * format = <encoding_format *> fmt
+cdef void decode_from_mem(encoding_format * format, const ulong * src, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int i
@@ -297,7 +291,7 @@ cdef void decode_from_mem(void * fmt, const ulong * src, flint_bitcnt_t bits, ul
 # Encode/decode to/from a memory buffer
 
 ctypedef struct Buffer_structure:
-    encoding_format format
+    encoding_format * format
     ulong * buffer
     ulong buffer_size
     ulong count
@@ -310,8 +304,7 @@ cdef class Buffer:
 
     def __init__(self, R):
         self.R = R
-        self.buffer.format.words = self.R._encoding_words
-        self.buffer.format.variables = self.R._encoding_variables
+        self.buffer.format = & self.R._encoding_format
         self.buffer.buffer = NULL
         self.buffer.buffer_size = 0
         self.buffer.count = 0
@@ -357,7 +350,7 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         buffer.buffer_size += 1024
         buffer.buffer = <ulong *>realloc(buffer.buffer, buffer.format.words * buffer.buffer_size * sizeof(ulong))
 
-    encode_to_mem(& buffer.format, buffer.buffer + buffer.format.words*buffer.count, bits, exp, coeff, ctx)
+    encode_to_mem(buffer.format, buffer.buffer + buffer.format.words*buffer.count, bits, exp, coeff, ctx)
 
     buffer.count += 1
 
@@ -367,7 +360,7 @@ cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong
     if index >= buffer.count:
         fmpz_set_ui(coeff, 0)
     else:
-        decode_from_mem(& buffer.format, buffer.buffer + buffer.format.words*index, bits, exp, coeff, ctx)
+        decode_from_mem(buffer.format, buffer.buffer + buffer.format.words*index, bits, exp, coeff, ctx)
 
 def copy_to_buffer(p):
     """
@@ -453,7 +446,7 @@ def copy_from_buffer(buffer):
 # Global variables, so we can only write to one file at a time :-(
 
 ctypedef struct encode_to_file_struct:
-    encoding_format format
+    encoding_format * format
     int fd
     ulong * buffer
     ulong buffer_size
@@ -471,12 +464,12 @@ cdef void encode_to_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * e
     elif index % state.buffer_size == 0:
         write(state.fd, state.buffer, state.format.words * state.buffer_size * sizeof(ulong))
         state.count = 0
-    encode_to_mem(& state.format, state.buffer + state.format.words*state.count, bits, exp, coeff, ctx)
+    encode_to_mem(state.format, state.buffer + state.format.words*state.count, bits, exp, coeff, ctx)
     state.count += 1
     state.total += 1
 
 ctypedef struct decode_from_file_struct:
-    encoding_format format
+    encoding_format * format
     int fd
     ulong * buffer
     ulong buffer_size
@@ -506,7 +499,7 @@ cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         state.trailing_bytes = retval % (state.format.words * sizeof(ulong))
         state.count += retval / (state.format.words * sizeof(ulong))
 
-    decode_from_mem(& state.format, state.buffer + state.format.words*(index-state.start), bits, exp, coeff, ctx)
+    decode_from_mem(state.format, state.buffer + state.format.words*(index-state.start), bits, exp, coeff, ctx)
 
 def copy_to_file(p, filename="bigflint.out"):
     cdef MPolynomial_flint np = p
@@ -514,8 +507,7 @@ def copy_to_file(p, filename="bigflint.out"):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     fptr[0] = <const fmpz_mpoly_struct *>np._poly
     cdef encode_to_file_struct * state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
-    state.format.words = parent._encoding_words
-    state.format.variables = parent._encoding_variables
+    state.format = & parent._encoding_format
     state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
     if state.fd == -1:
         raise Exception("creat() failed")
@@ -559,8 +551,7 @@ def copy_from_file(R, filename="bigflint.out"):
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
 
-    state.format.words = parent._encoding_words
-    state.format.variables = parent._encoding_variables
+    state.format = & parent._encoding_format
 
     # We currently need to prefill the deglex table when running multi-threaded.
     # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
@@ -1285,14 +1276,14 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                 raise ValueError('FLINT encodings must include exactly one coefficient encoding')
             if sum(encoded_vars) != n:
                 raise ValueError('FLINT encodings must encode exactly the number of variables in the ring')
-            self._encoding_variables = <int *> malloc(sizeof(int) * (len(encoded_vars) + 1))
+            self._encoding_format.variables = <int *> malloc(sizeof(int) * (len(encoded_vars) + 1))
             for i in range(len(encoded_vars)):
-                self._encoding_variables[i] = encoded_vars[i]
-            self._encoding_variables[len(encoded_vars)] = 0
-            self._encoding_words = len(encoded_vars) + 1
+                self._encoding_format.variables[i] = encoded_vars[i]
+            self._encoding_format.variables[len(encoded_vars)] = 0
+            self._encoding_format.words = len(encoded_vars) + 1
         else:
-            self._encoding_words = 0
-            self._encoding_variables = NULL
+            self._encoding_format.words = 0
+            self._encoding_format.variables = NULL
 
         if order == 'degrevlex':
             fmpz_mpoly_ctx_init(self._ctx, n, ORD_DEGREVLEX)
