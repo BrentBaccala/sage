@@ -30,8 +30,32 @@ cdef inline int mpoly_monomial_lt_nomask(ulong * exp2, const ulong * exp3, slong
             return exp2[i] < exp3[i]
     return 0
 
+# XXX check this; it really can't be right
+cdef inline ulong UWORD(ulong i) nogil:
+    return i
+
+cdef inline ulong mpoly_overflow_mask_sp(flint_bitcnt_t bits) nogil:
+    cdef slong i
+    cdef ulong mask = 0
+
+    for i in range(FLINT_BITS/bits):
+        mask = (mask << bits) + (UWORD(1) << (bits - 1))
+
+    return mask
+
+cdef inline void mpoly_monomial_max(ulong * exp1, const ulong * exp2, const ulong * exp3,
+                                    flint_bitcnt_t bits, slong N, ulong mask) nogil:
+    cdef slong i
+    cdef ulong s, m
+    for i in range(N):
+        s = mask + exp2[i] - exp3[i]
+        m = mask & s
+        m = m - (m >> (bits - 1))
+        exp1[i] = exp3[i] + (s & m)
+
+
 # flint/mpoly.h
-cdef extern from "flint_wrap.h":
+cdef extern from "flint_wrap.h" nogil:
 
     # Now in types.pxd
 

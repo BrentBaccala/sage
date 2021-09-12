@@ -848,6 +848,7 @@ cdef ulong max_radii_count = 0
 cdef ulong radii_blocks = 0
 
 cdef ulong * last_exp = NULL
+cdef ulong * max_exp = NULL
 
 cdef int max_vdeg = 0
 cdef int max_cdeg = 0
@@ -855,7 +856,7 @@ cdef int max_cdeg = 0
 cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
-    global last_exp
+    global last_exp, max_exp
     global max_cdeg, max_vdeg
     global of2_count
 
@@ -875,6 +876,7 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
 
     # Check to see if monomial exponents are ordered correctly
+    # XXX doesn't resize properly if verify_file is called twice
     if last_exp == NULL:
         last_exp = <ulong *>malloc(N * sizeof(ulong))
         mpoly_monomial_set(last_exp, exp, N)
@@ -883,6 +885,12 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
             raise_(SIGSEGV)
         else:
             mpoly_monomial_set(last_exp, exp, N)
+
+    if max_exp == NULL:
+        max_exp = <ulong *>malloc(N * sizeof(ulong))
+        mpoly_monomial_set(max_exp, exp, N)
+    else:
+        mpoly_monomial_max(max_exp, max_exp, exp, bits, N, mpoly_overflow_mask_sp(bits))
 
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int vdeg = 0
@@ -912,7 +920,9 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
         exp2 = exps[128]
         exp3 = exps[127]
         with gil:
-            status_string = "{},{},{} {}/{} vdeg={} cdeg={}".format(exp1, exp2, exp3, radii_blocks, max_radii_count, max_vdeg, max_cdeg)
+            exps = <unsigned char *> max_exp
+            max_exps = ''.join(map(str, exps[0:119]))
+            status_string = "{},{},{} {}/{} vdeg={} cdeg={} {}".format(exp1, exp2, exp3, radii_blocks, max_radii_count, max_vdeg, max_cdeg, max_exps)
             status_string_encode = status_string.encode()
             status_string_ptr = status_string_encode
 
