@@ -454,7 +454,7 @@ ctypedef struct encode_to_file_struct:
     ulong count
     ulong total
 
-cdef void encode_to_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef void encode_to_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef encode_to_file_struct * state = <encode_to_file_struct *> ptr
     if index == -1:
         if state.count != 0:
@@ -645,7 +645,7 @@ cdef ulong radii_count = 0
 cdef ulong * radii_exp_block = NULL
 cdef ulong * radii_coeff_block = NULL
 
-cdef const char * encode_to_file_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+cdef const char * encode_to_file_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     encode_to_file(ptr, index, bits, exp, coeff, ctx)
     return status_string_ptr
 
@@ -2103,12 +2103,15 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if verbose: print("fmpz_mpoly_addmul_multi vardeg =", vardeg, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
+        cdef slong len_terms = len(terms)
+
         if verbose:
             filename = "bigflint.out.gz"
             state.format = & self._encoding_format
             open_file_for_encoding(& state, filename)
 
-            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> &state, fptr, iptr, len(terms), self._ctx, encode_to_file_returning_status)
+            with nogil:
+                fmpz_mpoly_addmul_multi_threaded_abstract(<void *> &state, fptr, iptr, len_terms, self._ctx, encode_to_file_returning_status)
 
             close_file_for_encoding(& state)
         else:
