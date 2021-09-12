@@ -447,6 +447,7 @@ def copy_from_buffer(buffer):
 
 ctypedef struct encode_to_file_struct:
     encoding_format * format
+    FILE * FILE
     int fd
     ulong * buffer
     ulong buffer_size
@@ -468,8 +469,45 @@ cdef void encode_to_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * e
     state.count += 1
     state.total += 1
 
+cdef open_file_for_encoding(encode_to_file_struct *state, filename):
+    if filename.endswith('.gz'):
+        command = "gzip > {}".format(filename)
+        command_type = "w"
+        state.FILE = popen(command.encode(), command_type.encode())
+        if state.FILE == NULL:
+            raise Exception("popen() failed on gzip > " + filename)
+        # I'd prefer to dup the file descriptor and close the buffered popen
+        # to avoid any kind of conflict between the buffered file I/O and
+        # the raw I/O that we use, but pclose'ing (or fclose'ing) a popen'ed FILE
+        # will wait for the process to terminate.
+        state.fd = fileno(state.FILE)
+        if state.fd == -1:
+            raise Exception("fileno() failed on " + filename)
+    else:
+        state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+        if state.fd == -1:
+            raise Exception("creat() failed")
+        state.FILE = NULL
+    state.buffer_size = 1024
+    state.count = 0
+    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
+
+cdef close_file_for_encoding(encode_to_file_struct *state):
+    free(state.buffer)
+    if state.FILE != NULL:
+        retval = pclose(state.FILE)
+        if retval == -1:
+            raise Exception("pclose() failed")
+        elif not WIFEXITED(retval):
+            raise Exception("pclose() indicated abnormal exit of gzip")
+        elif WEXITSTATUS(retval) != 0:
+            raise Exception("gzip exit status " + str(WEXITSTATUS(retval)))
+    else:
+        close(state.fd)
+
 ctypedef struct decode_from_file_struct:
     encoding_format * format
+    FILE * FILE
     int fd
     ulong * buffer
     ulong buffer_size
@@ -501,6 +539,50 @@ cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong *
 
     decode_from_mem(state.format, state.buffer + state.format.words*(index-state.start), bits, exp, coeff, ctx)
 
+cdef open_file_for_decoding(decode_from_file_struct *state, filename):
+    """
+    `state` needs to have its `format` field set correctly.  Everything else
+    gets filled in here, including malloc'ing a buffer.
+    """
+    if filename.endswith('.gz'):
+        command = "zcat {}".format(filename)
+        command_type = "r"
+        state.FILE = popen(command.encode(), command_type.encode())
+        if state.FILE == NULL:
+            raise Exception("popen() failed on zcat " + filename)
+        # I'd prefer to dup the file descriptor and close the buffered popen
+        # to avoid any kind of conflict between the buffered file I/O and
+        # the raw I/O that we use, but pclose'ing (or fclose'ing) a popen'ed FILE
+        # will wait for the process to terminate.
+        state.fd = fileno(state.FILE)
+        if state.fd == -1:
+            raise Exception("fileno() failed on " + filename)
+    else:
+        state.fd = open(filename.encode(), O_RDONLY)
+        if state.fd == -1:
+            raise Exception("open() failed on " + filename)
+        state.FILE = NULL
+    state.buffer_size = 1024
+    state.start = 0
+    state.count = 0
+    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
+
+cdef close_file_for_decoding(decode_from_file_struct *state):
+    """
+    `state`'s buffer will also get free'd by this function.
+    """
+    free(state.buffer)
+    if state.FILE != NULL:
+        retval = pclose(state.FILE)
+        if retval == -1:
+            raise Exception("pclose() failed")
+        elif not WIFEXITED(retval):
+            raise Exception("pclose() indicated abnormal exit of gzip")
+        elif WEXITSTATUS(retval) != 0:
+            raise Exception("gzip exit status " + str(WEXITSTATUS(retval)))
+    else:
+        close(state.fd)
+
 def copy_to_file(p, filename="bigflint.out"):
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
@@ -508,16 +590,10 @@ def copy_to_file(p, filename="bigflint.out"):
     cdef encode_to_file_struct state
     fptr[0] = <void *>np._poly
     state.format = & parent._encoding_format
-    state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-    if state.fd == -1:
-        raise Exception("creat() failed")
-    state.buffer_size = 1024
-    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
-    state.count = 0
+    open_file_for_encoding(& state, filename)
     with nogil:
         fmpz_mpoly_abstract_add(& state, fptr, 1, 8, parent._ctx, NULL, encode_to_file)
-    close(state.fd)
-    free(state.buffer)
+    close_file_for_encoding(& state)
 
 def copy_from_file(R, filename="bigflint.out"):
     """
@@ -527,7 +603,7 @@ def copy_from_file(R, filename="bigflint.out"):
         sage: copy_from_file(R, filename=''.join(chr(randrange(65,91)) for _ in range(250)))
         Traceback (most recent call last):
         ...
-        Exception: open() failed
+        Exception: open() failed on ...
         sage: copy_from_file(R, filename=''.join(chr(randrange(65,91)) for _ in range(250)) + '.gz')
         Traceback (most recent call last):
         ...
@@ -541,54 +617,26 @@ def copy_from_file(R, filename="bigflint.out"):
         sage: p == p2
         True
         sage: os.unlink(filename)
+
+        sage: filename='/tmp/' + ''.join(chr(randrange(65,91)) for _ in range(250)) + '.gz'
+        sage: copy_to_file(p, filename=filename)
+        sage: p2 = copy_from_file(R, filename=filename)
+        sage: p == p2
+        True
+        sage: os.unlink(filename)
     """
     cdef MPolynomialRing_flint parent = R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
-    cdef FILE * popen_FILE
-    cdef int retval
     np._parent = R
     cdef const void * fptr[1]
     cdef decode_from_file_struct state
 
     state.format = & parent._encoding_format
-
-    # We currently need to prefill the deglex table when running multi-threaded.
-    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
-    deglex_prefill_table(12, 31)
-    deglex_prefill_table(118, 6)
-
-    if filename.endswith('.gz'):
-        command = "zcat {}".format(filename)
-        command_type = "r"
-        popen_FILE = popen(command.encode(), command_type.encode())
-        if popen_FILE == NULL:
-            raise Exception("popen() failed on zcat " + filename)
-        state.fd = fileno(popen_FILE)
-    else:
-        state.fd = open(filename.encode(), O_RDONLY)
-        if state.fd == -1:
-            raise Exception("open() failed")
-    state.buffer_size = 1024
-    state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
-    state.start = 0
-    state.count = 0
+    open_file_for_decoding(& state, filename)
     fptr[0] = <void *> &state
     with nogil:
         fmpz_mpoly_abstract_add(np._poly, fptr, 1, 8, parent._ctx, decode_from_file, NULL)
-    if filename.endswith('.gz'):
-        retval = pclose(popen_FILE)
-        if retval == -1:
-            # XXX malloc doesn't get free'd
-            raise Exception("pclose() failed")
-        elif not WIFEXITED(retval):
-            # XXX malloc doesn't get free'd
-            raise Exception("pclose() indicated abnormal exit of gzip")
-        elif WEXITSTATUS(retval) != 0:
-            # XXX malloc doesn't get free'd
-            raise Exception("gzip exit status " + str(WEXITSTATUS(retval)))
-    else:
-        close(state.fd)
-    free(state.buffer)
+    close_file_for_decoding(& state)
     return np
 
 cdef ulong of3_last_radii = UINT64_MAX
