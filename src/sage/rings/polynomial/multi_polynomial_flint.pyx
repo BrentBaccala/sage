@@ -1939,7 +1939,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
         p._parent = self
 
-        cdef encode_to_file_struct state[1]
+        cdef encode_to_file_struct state
 
         if verbose: print("fmpz_mpoly_addmul_multi entry", len(terms), file=sys.stderr)
 
@@ -2104,19 +2104,13 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
         if verbose:
-            filename = "bigflint.out"
-            state.fd = creat(filename.encode(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
-            if state.fd == -1:
-                raise Exception("creat() failed")
+            filename = "bigflint.out.gz"
             state.format = & self._encoding_format
-            state.buffer_size = 1024
-            state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
-            state.count = 0
+            open_file_for_encoding(& state, filename)
 
-            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> state, fptr, iptr, len(terms), self._ctx, encode_to_file_returning_status)
+            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> &state, fptr, iptr, len(terms), self._ctx, encode_to_file_returning_status)
 
-            close(state.fd)
-            free(state.buffer)
+            close_file_for_encoding(& state)
         else:
             fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
 
