@@ -596,8 +596,8 @@ cdef ulong radii_count = 0
 cdef ulong * radii_exp_block = NULL
 cdef ulong * radii_coeff_block = NULL
 
-cdef const char * output_function4(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
-    encode_to_file(<void *> poly, index, bits, exp, coeff, ctx)
+cdef const char * encode_to_file_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx):
+    encode_to_file(ptr, index, bits, exp, coeff, ctx)
     return status_string_ptr
 
 # Once these blocks have been passed to this function, they get processed and then freed.
@@ -666,7 +666,7 @@ cdef void output_block2(output_block_data * data):
         state.count = 0
 
         with nogil:
-            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, of3_fptr, of3_iptr, 1, data.ctx, output_function4)
+            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> state, of3_fptr, of3_iptr, 1, data.ctx, encode_to_file_returning_status)
 
         radii_info[data.radii] += (state.total,)
         pclose(popen_FILE)
@@ -2064,7 +2064,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             state.buffer_size = 1024
             state.count = 0
 
-            fmpz_mpoly_addmul_multi_threaded_abstract(<fmpz_mpoly_struct *> state, fptr, iptr, len(terms), self._ctx, output_function4)
+            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> state, fptr, iptr, len(terms), self._ctx, encode_to_file_returning_status)
 
             close(state.fd)
             free(state.buffer)
