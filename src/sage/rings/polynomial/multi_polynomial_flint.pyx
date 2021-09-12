@@ -556,15 +556,56 @@ cdef close_file_for_encoding(encode_to_file_struct *state):
     else:
         close(state.fd)
 
+# Decoding is actually a bit different from encoding, because we can decode in parallel.
+#
+# Encoding in parallel is not as useful, both because encoding is a bit faster (table
+# lookup, but no table search), but mostly because encoding comes at the end of our
+# processing pipeline and other things (like decoding 40 files being summed
+# into only one, or multiplying polynomials) tend to dominate our runtime.
+
 ctypedef struct decode_from_file_struct:
     encoding_format * format
     FILE * FILE
     int fd
+
+    # `buffer` contains the bytes as they are read in from disk.
+    #
+    # 'count' polynomial terms (of format.words bytes each) have been read in so far total.
+    # 'start' is the index of the first term in 'buffer'
+    # There are (count-start) mod buffer_size terms in the buffer,
+    #     and (count-start) mod buffer_size * format.words + trailing_bytes bytes in the buffer,
+    #     which can never be more than buffer_size.
+    # `trailing_bytes`, which can never be more than format.words, is the number of bytes
+    #     in the partial term at the end of the buffer (if any).
+
     ulong * buffer
     ulong buffer_size
     ulong count
     ulong start
     ulong trailing_bytes
+
+    # `exps` and `coeffs` are the decoded terms, ready to be fed to FLINT.
+    #
+    # They are divided into equal sized segments.  We allow for multiple threads to decode multiple
+    # segments simultaneously
+    #
+    # We use two semaphores - one to indicate that the load-to-FLINT function can advance to the next segment,
+    # and another to indicate that the load function is done with a segment and it can be freed.
+    #
+    # We initialize segments_free = num_segments and segments_ready_to_load = 0
+    #
+    # Once a segment has been completed decoded, we post segments_ready_to_load.  The load
+    # function waits on it and advances into the next segment once it gets posted.
+    #
+    # Once a segment has been completed loaded, we post segments_free.  The decode function
+    # waits on it and starts decoding the next segment once it gets posted.
+
+    sem_t segments_ready_to_load
+    sem_t segments_free
+    ulong * exps
+    fmpz * coeffs
+    ulong segment_size
+    ulong num_segments
 
 cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> ptr
