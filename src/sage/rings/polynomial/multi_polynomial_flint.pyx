@@ -51,6 +51,48 @@ from sage.cpython.string cimport char_to_str, str_to_bytes
 
 from functools import reduce
 
+# Some system include files that Cython should probably provide, but doesn't
+
+cdef extern from "<semaphore.h>" nogil:
+    ctypedef union sem_t:
+        pass
+    int sem_init(sem_t *sem, int pshared, unsigned int value)
+    int sem_wait(sem_t *sem)
+    int sem_trywait(sem_t *sem)
+    int sem_post(sem_t *sem)
+    int sem_destroy(sem_t *sem)
+    int sem_getvalue(sem_t *sem, int *sval)
+
+cdef extern from "<pthread.h>" nogil:
+    ctypedef union pthread_rwlock_t:
+        pass
+    ctypedef union pthread_rwlockattr_t:
+        pass
+    ctypedef enum pthread_rwlock_prefer:
+        PTHREAD_RWLOCK_PREFER_READER_NP,
+        PTHREAD_RWLOCK_PREFER_WRITER_NP,
+        PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP,
+        PTHREAD_RWLOCK_DEFAULT_NP = PTHREAD_RWLOCK_PREFER_READER_NP
+
+    int pthread_rwlock_init (pthread_rwlock_t * __rwlock, const pthread_rwlockattr_t * __attr)
+    int pthread_rwlock_destroy (pthread_rwlock_t *__rwlock)
+    int pthread_rwlock_rdlock (pthread_rwlock_t *__rwlock)
+    int pthread_rwlock_tryrdlock (pthread_rwlock_t *__rwlock)
+    # int pthread_rwlock_timedrdlock (pthread_rwlock_t * __rwlock, const struct timespec * __abstime)
+    # int pthread_rwlock_clockrdlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const struct timespec * __abstime)
+    int pthread_rwlock_wrlock (pthread_rwlock_t *__rwlock)
+    int pthread_rwlock_trywrlock (pthread_rwlock_t *__rwlock)
+    # int pthread_rwlock_timedwrlock (pthread_rwlock_t * __rwlock, const struct timespec * __abstime)
+    # int pthread_rwlock_clockwrlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const struct timespec * __abstime)
+    int pthread_rwlock_unlock (pthread_rwlock_t *__rwlock)
+    int pthread_rwlockattr_init (pthread_rwlockattr_t *__attr)
+    int pthread_rwlockattr_destroy (pthread_rwlockattr_t *__attr)
+    int pthread_rwlockattr_getpshared (const pthread_rwlockattr_t * __attr, int * __pshared)
+    int pthread_rwlockattr_setpshared (pthread_rwlockattr_t *__attr, int __pshared)
+    int pthread_rwlockattr_getkind_np (const pthread_rwlockattr_t * __attr, int * __pref)
+    int pthread_rwlockattr_setkind_np (pthread_rwlockattr_t *__attr, int __pref)
+
+
 status_string = ""
 status_string_encode = status_string.encode()
 cdef char * status_string_ptr = status_string_encode
@@ -100,11 +142,22 @@ ctypedef struct deglex_table_entry2:
 cdef deglex_table_entry2 * deglex_table = NULL
 cdef ulong deglex_table_size = 0
 
+# Create a rwlock to protect the deglex coefficient table.
+# Set its locking policy to block readers whenever a writer is waiting;
+# i.e, we stop everything whenever a thread wants to extend the table
+
+cdef pthread_rwlock_t deglex_table_rwlock
+cdef pthread_rwlockattr_t deglex_table_rwlockattr
+
+pthread_rwlockattr_init(& deglex_table_rwlockattr)
+pthread_rwlockattr_setkind_np(& deglex_table_rwlockattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)
+pthread_rwlock_init(& deglex_table_rwlock, & deglex_table_rwlockattr)
+
 cpdef void deglex_fill_table(ulong setsize, ulong num, ulong offset) nogil:
     global deglex_table, deglex_table_size
     cdef ulong size
-    # Not only does gil let us call binomial to compute the deglex coefficients,
-    # but it also protects the realloc's from multiple entries into this code
+    if pthread_rwlock_wrlock(& deglex_table_rwlock) != 0:
+        raise_(SIGSEGV)
     with gil:
         if setsize >= deglex_table_size:
             deglex_table = <deglex_table_entry2 *> realloc(deglex_table,
@@ -130,10 +183,8 @@ cpdef void deglex_fill_table(ulong setsize, ulong num, ulong offset) nogil:
                 size = deglex_table[setsize].table[num].size
                 deglex_table[setsize].table[num].table[size] = deglex_coeff_slow(setsize, num, size + (num-1))
                 deglex_table[setsize].table[num].size += 1
-
-# Single-threaded code can safely resize the lookup table during the run.
-#
-# Multi-threaded code has to prefill the table before it starts to avoid a race condition.
+    if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
+        raise_(SIGSEGV)
 
 def deglex_prefill_table(num_exps, max_degree):
     for i in range(num_exps+1):
@@ -148,15 +199,23 @@ cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
             0
     """
     global deglex_table, deglex_table_size
+    cdef ulong retval
+
+    if pthread_rwlock_rdlock(& deglex_table_rwlock) != 0:
+        raise_(SIGSEGV)
 
     if setsize >= deglex_table_size or num >= deglex_table[setsize].size \
        or offset - (num-1) >= deglex_table[setsize].table[num].size:
+        if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
+            raise_(SIGSEGV)
         deglex_fill_table(setsize, num, offset)
+        if pthread_rwlock_rdlock(& deglex_table_rwlock) != 0:
+            raise_(SIGSEGV)
 
-    # XXX race condition - table address could be moved by a realloc during the
-    # pointer operations required by the next line
-
-    return deglex_table[setsize].table[num].table[offset - (num-1)]
+    retval = deglex_table[setsize].table[num].table[offset - (num-1)]
+    if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
+        raise_(SIGSEGV)
+    return retval
 
 # Functions to encode and decode deglex exponents
 
@@ -371,7 +430,8 @@ def copy_to_buffer(p):
     fptr[0] = <void *>np._poly
     buffer = Buffer(parent)
     cdef Buffer cbuffer = buffer
-    fmpz_mpoly_abstract_add(<void *> &cbuffer.buffer, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+    with nogil:
+        fmpz_mpoly_abstract_add(<void *> &cbuffer.buffer, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
     return buffer
 
 def copy_from_buffer(buffer):
@@ -425,7 +485,8 @@ def copy_from_buffer(buffer):
     np._parent = parent
     cdef void * fptr[1]
     fptr[0] = <void *> &cbuffer.buffer
-    fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_buffer, NULL)
+    with nogil:
+        fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_buffer, NULL)
     return np
 
 # Encode/decode to/from a file
@@ -814,11 +875,6 @@ def substitute_file(R, filename="bigflint.out"):
     r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
     cdef MPolynomialRing_flint parent = R
 
-    # We currently need to prefill the deglex table when running multi-threaded.
-    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
-    deglex_prefill_table(12, 31)
-    deglex_prefill_table(118, 6)
-
     cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
     cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
     state.fd = open(filename.encode(), O_RDONLY)
@@ -951,16 +1007,6 @@ def verify_file(R, filename="bigflint.out"):
         fmpz_mpoly_abstract_add(NULL, fptr, 1, 8, parent._ctx, decode_from_file, verify_fcn)
 
     close_file_for_decoding(&state)
-
-cdef extern from "<semaphore.h>" nogil:
-    ctypedef union sem_t:
-        pass
-    int sem_init(sem_t *sem, int pshared, unsigned int value)
-    int sem_wait(sem_t *sem)
-    int sem_trywait(sem_t *sem)
-    int sem_post(sem_t *sem)
-    int sem_destroy(sem_t *sem)
-    int sem_getvalue(sem_t *sem, int *sval)
 
 # The buffer is divided into equal sized segments
 #
@@ -1121,11 +1167,6 @@ def sum_files(R, filename_list=[], filename=None):
         encoding_state.buffer = NULL
         encoding_state.buffer_size = 0
         encoding_state.count = 0
-
-    # We currently need to prefill the deglex table when running multi-threaded.
-    # Our 12 v-variables have max degree 31 and our 118 c-variables have max degree 6.
-    deglex_prefill_table(12, 31)
-    deglex_prefill_table(118, 6)
 
     # bits is hardwired
     N = mpoly_words_per_exp(8, parent._ctx.minfo)
