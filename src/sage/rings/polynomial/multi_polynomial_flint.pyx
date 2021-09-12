@@ -55,16 +55,6 @@ status_string = ""
 status_string_encode = status_string.encode()
 cdef char * status_string_ptr = status_string_encode
 
-cdef ulong last_radii = 0
-cdef ulong last_radii_count = 0
-cdef ulong max_radii_count = 0
-cdef ulong radii_blocks = 0
-
-cdef ulong * last_exp = NULL
-
-cdef int max_vdeg = 0
-cdef int max_cdeg = 0
-
 # Raising a Python exception in a Cython callback from FLINT does nothing other than print a message,
 # so deal with fatal errors by generating a seg fault, which will be caught by gdb if running with "sage --gdb"
 
@@ -852,7 +842,17 @@ def substitute_file(R, filename="bigflint.out"):
 
 cdef ulong of2_count = 0
 
-cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef ulong last_radii = 0
+cdef ulong last_radii_count = 0
+cdef ulong max_radii_count = 0
+cdef ulong radii_blocks = 0
+
+cdef ulong * last_exp = NULL
+
+cdef int max_vdeg = 0
+cdef int max_cdeg = 0
+
+cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global status_string, status_string_encode, status_string_ptr
     global last_radii, last_radii_count, radii_blocks, max_radii_count
     global last_exp
@@ -888,9 +888,9 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
     cdef int vdeg = 0
     cdef int cdeg = 0
     cdef int i
-    for i in range(12):
+    for i in range(11):
         vdeg += exps[129-i]
-    for i in range(12,130):
+    for i in range(11,130):
         cdeg += exps[129-i]
 
     cdef ulong current_radii = (exp[15] >> 56) | (exp[16] << 8)
@@ -918,37 +918,29 @@ cdef const char * output_function2(fmpz_mpoly_struct * poly, slong index, flint_
 
     return status_string_ptr
 
-cdef void output_function2a(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef void verify_fcn(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     global of2_count
-    output_function2(NULL, index, bits, exp, coeff, ctx)
+    verify_fcn_returning_status(NULL, index, bits, exp, coeff, ctx)
     if ((index > 0) and (index % 1000000 == 0)) or (index == -1):
         with gil:
             if index == -1:
                 print("Output length", of2_count, status_string)
             else:
-                print("Output length", index, status_string)
+                print("Output length", index, status_string, end='\r')
 
-def check_file(R, filename="bigflint.out"):
+def verify_file(R, filename="bigflint.out"):
     cdef MPolynomialRing_flint parent = R
 
-    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
-    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
-    state.fd = open(filename.encode(), O_RDONLY)
-    if state.fd == -1:
-        raise Exception("open() failed")
-    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-    state.buffer_size = 1024
-    state.start = 0
-    state.count = 0
-    fptr[0] = <fmpz_mpoly_struct *> state
+    cdef void * fptr[1]
+    cdef decode_from_file_struct state
+    state.format = & parent._encoding_format
+    open_file_for_decoding(& state, filename)
+    fptr[0] = <void *> &state
 
     with nogil:
-        fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function2a)
+        fmpz_mpoly_abstract_add(NULL, fptr, 1, 8, parent._ctx, decode_from_file, verify_fcn)
 
-    close(state.fd)
-    free(state.buffer)
-    free(state)
-    free(fptr)
+    close_file_for_decoding(&state)
 
 cdef extern from "<semaphore.h>" nogil:
     ctypedef union sem_t:
@@ -1170,7 +1162,7 @@ def sum_files(R, filename_list=[], filename=None):
     with nogil:
         # XXX bits is hardwired
         if encoding_state.buffer == NULL:
-            fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, output_function2a)
+            fmpz_mpoly_abstract_add(NULL, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, verify_fcn)
         else:
             fmpz_mpoly_abstract_add(<void *> &encoding_state, <void **> fptr, nfiles, 8, parent._ctx, load_from_decoded_buffer, encode_to_file)
 
