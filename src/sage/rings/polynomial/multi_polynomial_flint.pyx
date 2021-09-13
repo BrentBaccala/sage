@@ -589,19 +589,33 @@ ctypedef struct decode_from_file_struct:
     # They are divided into equal sized segments.  We allow for multiple threads to decode multiple
     # segments simultaneously
     #
-    # We use two semaphores - one to indicate that the load-to-FLINT function can advance to the next segment,
-    # and another to indicate that the load function is done with a segment and it can be freed.
+    # We use two semaphores for each segment: one to indicate that it is free and we can begin writing
+    # decoded terms into it, and one to indicate that it is complete and we can begin sending it to FLINT.
     #
-    # We initialize segments_free = num_segments and segments_ready_to_load = 0
+    #                                Free  Ready
     #
-    # Once a segment has been completed decoded, we post segments_ready_to_load.  The load
+    # Empty state (initial state)      +    -
+    # Writing terms in                 -    -
+    # Ready to read                    -    +
+    # Reading terms out                -    -
+    # Finished reading out             +    -  (back to empty state)
+    #
+    # We initialize everything as Free +, Ready -
+    #
+    # LOOP:
+    #
+    #     Run through the segments, ideally starting at the one after the one being read,
+    #     sem_trywait'ing on Free.
+    #
+    #     Once we obtain a Free segment and sem_trywait it, Free is -, start reading 
+    # Once a segment has been completed decoded, we post segments_ready.  The load
     # function waits on it and advances into the next segment once it gets posted.
     #
     # Once a segment has been completed loaded, we post segments_free.  The decode function
     # waits on it and starts decoding the next segment once it gets posted.
 
-    sem_t segments_ready_to_load
-    sem_t segments_free
+    sem_t * segments_free
+    sem_t * segments_ready
     ulong * exps
     fmpz * coeffs
     ulong segment_size
