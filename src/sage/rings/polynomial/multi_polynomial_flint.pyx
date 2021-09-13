@@ -592,34 +592,58 @@ ctypedef struct decode_from_file_struct:
     # We use two semaphores for each segment: one to indicate that it is free and we can begin writing
     # decoded terms into it, and one to indicate that it is complete and we can begin sending it to FLINT.
     #
-    #                                Free  Ready
+    #                                Free  Disk  Ready
     #
-    # Empty state (initial state)      +    -
-    # Writing terms in                 -    -
-    # Ready to read                    -    +
-    # Reading terms out                -    -
-    # Finished reading out             +    -  (back to empty state)
+    # Empty state (initial state)     +     -     -
+    # Reading from disk               -     -     -
+    # Ready to decode                 -     +     -
+    # Decoding buffer                 -     -     -
+    # Ready for FLINT                 -     -     +
+    # Reading terms out               -     -     -
+    # Finished reading out            +     -     - (back to empty state)
     #
-    # We initialize everything as Free +, Ready -
+    # We initialize everything as Free +, Disk -, Ready -
     #
-    # LOOP:
+    # DECODE LOOP:
     #
-    #     Run through the segments, ideally starting at the one after the one being read,
-    #     sem_trywait'ing on Free.
+    #     If there is no disk reading thread running, no eof condition, and (count-start) mod buffer_size
+    #     points to the start of a segment, we sem_trywait that segment's Free and if we get it,
+    #     try to read buffer_size/num_segments bytes from disk.  ENOBLOCK?  Or just block?
+    #     If we read the entire buffer, post its Disk and move on to the next buffer.
+    #     If we hit eof, write zeros into the next word, set eof, and post Disk.
+    #     If we didn't read the entire buffer, keep reading until we finish it or get eof.
+    #          (reading across buffers is more complicated, simplest is to do short reads)
+    #     Goto START of DECODE LOOP
     #
-    #     Once we obtain a Free segment and sem_trywait it, Free is -, start reading 
-    # Once a segment has been completed decoded, we post segments_ready.  The load
-    # function waits on it and advances into the next segment once it gets posted.
+    #     Otherwise, run through the segments, ideally starting at the one after (count-start) mod buffer_size,
+    #     sem_trywait'ing on Disk.  Keep going until we get one.  What if we get none?
     #
-    # Once a segment has been completed loaded, we post segments_free.  The decode function
-    # waits on it and starts decoding the next segment once it gets posted.
+    #     Once we obtain a Disk segment and sem_trywait it, start decoding it.
+    #
+    #     Once a segment has been completed decoded, we post Ready.
+    #     Goto START of DECODE LOOP
+    #
+    # The FLINT input_function knows where it is in the buffer because of its index variable being passed in.
+    # It sem_wait's on a Ready every time it crosses a segment boundary.
+    #
+    # Since the FLINT function is blocking on Ready, we need at least one DECODE LOOP thread running above
+    # and beyond the FLINT thread.
+    #
+    # The FLINT input_function could sem_trywait on a segment boundary and run decode loop if it couldn't
+    # get Ready, but that would stall the entire FLINT input_function while a buffer was read or decoded.
+    #
+    # Best to have at least two threads running.
+    #
+    # If num_segments == 1, we'd be better off with the single-threaded code that decodes `buffer` right
+    # into the locations provided to the FLINT input_function, and we simply don't use the next block
+    # of variables, except for num_segments being one.
 
+    ulong num_segments
     sem_t * segments_free
+    sem_t * segments_disk
     sem_t * segments_ready
     ulong * exps
     fmpz * coeffs
-    ulong segment_size
-    ulong num_segments
 
 cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> ptr
