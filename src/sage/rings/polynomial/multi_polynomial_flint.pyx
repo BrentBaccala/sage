@@ -63,28 +63,64 @@ cdef extern from "<semaphore.h>" nogil:
     int sem_destroy(sem_t *sem)
     int sem_getvalue(sem_t *sem, int *sval)
 
+from posix.time cimport timeval, timespec
+from posix.types cimport clockid_t
+
 cdef extern from "<pthread.h>" nogil:
+    ctypedef union pthread_mutex_t:
+        pass
+    ctypedef union pthread_mutexattr_t:
+        pass
     ctypedef union pthread_rwlock_t:
         pass
     ctypedef union pthread_rwlockattr_t:
         pass
+
     ctypedef enum pthread_rwlock_prefer:
         PTHREAD_RWLOCK_PREFER_READER_NP,
         PTHREAD_RWLOCK_PREFER_WRITER_NP,
         PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP,
         PTHREAD_RWLOCK_DEFAULT_NP = PTHREAD_RWLOCK_PREFER_READER_NP
 
+    int pthread_mutex_init (pthread_mutex_t *__mutex, const pthread_mutexattr_t *__mutexattr)
+    int pthread_mutex_destroy (pthread_mutex_t *__mutex)
+    int pthread_mutex_trylock (pthread_mutex_t *__mutex)
+    int pthread_mutex_lock (pthread_mutex_t *__mutex)
+    int pthread_mutex_timedlock (pthread_mutex_t * __mutex, const timespec * __abstime)
+    int pthread_mutex_clocklock (pthread_mutex_t * __mutex, clockid_t __clockid, const timespec * __abstime)
+    int pthread_mutex_unlock (pthread_mutex_t *__mutex)
+    int pthread_mutex_getprioceiling (const pthread_mutex_t * __mutex, int * __prioceiling)
+    int pthread_mutex_setprioceiling (pthread_mutex_t * __mutex, int __prioceiling, int * __old_ceiling)
+    int pthread_mutex_consistent (pthread_mutex_t *__mutex)
+    int pthread_mutex_consistent_np (pthread_mutex_t *__mutex)
+
+    int pthread_mutexattr_init (pthread_mutexattr_t *__attr)
+    int pthread_mutexattr_destroy (pthread_mutexattr_t *__attr)
+    int pthread_mutexattr_getpshared (const pthread_mutexattr_t * __attr, int * __pshared)
+    int pthread_mutexattr_setpshared (pthread_mutexattr_t *__attr, int __pshared)
+    int pthread_mutexattr_gettype (const pthread_mutexattr_t * __attr, int * __kind)
+    int pthread_mutexattr_settype (pthread_mutexattr_t *__attr, int __kind)
+    int pthread_mutexattr_getprotocol (const pthread_mutexattr_t * __attr, int * __protocol)
+    int pthread_mutexattr_setprotocol (pthread_mutexattr_t *__attr, int __protocol)
+    int pthread_mutexattr_getprioceiling (const pthread_mutexattr_t * __attr, int * __prioceiling)
+    int pthread_mutexattr_setprioceiling (pthread_mutexattr_t *__attr, int __prioceiling)
+    int pthread_mutexattr_getrobust (const pthread_mutexattr_t *__attr, int *__robustness)
+    int pthread_mutexattr_getrobust_np (const pthread_mutexattr_t *__attr, int *__robustness)
+    int pthread_mutexattr_setrobust (pthread_mutexattr_t *__attr, int __robustness)
+    int pthread_mutexattr_setrobust_np (pthread_mutexattr_t *__attr, int __robustness)
+
     int pthread_rwlock_init (pthread_rwlock_t * __rwlock, const pthread_rwlockattr_t * __attr)
     int pthread_rwlock_destroy (pthread_rwlock_t *__rwlock)
     int pthread_rwlock_rdlock (pthread_rwlock_t *__rwlock)
     int pthread_rwlock_tryrdlock (pthread_rwlock_t *__rwlock)
-    # int pthread_rwlock_timedrdlock (pthread_rwlock_t * __rwlock, const struct timespec * __abstime)
-    # int pthread_rwlock_clockrdlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const struct timespec * __abstime)
+    int pthread_rwlock_timedrdlock (pthread_rwlock_t * __rwlock, const timespec * __abstime)
+    int pthread_rwlock_clockrdlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const timespec * __abstime)
     int pthread_rwlock_wrlock (pthread_rwlock_t *__rwlock)
     int pthread_rwlock_trywrlock (pthread_rwlock_t *__rwlock)
-    # int pthread_rwlock_timedwrlock (pthread_rwlock_t * __rwlock, const struct timespec * __abstime)
-    # int pthread_rwlock_clockwrlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const struct timespec * __abstime)
+    int pthread_rwlock_timedwrlock (pthread_rwlock_t * __rwlock, const timespec * __abstime)
+    int pthread_rwlock_clockwrlock (pthread_rwlock_t * __rwlock, clockid_t __clockid, const timespec * __abstime)
     int pthread_rwlock_unlock (pthread_rwlock_t *__rwlock)
+
     int pthread_rwlockattr_init (pthread_rwlockattr_t *__attr)
     int pthread_rwlockattr_destroy (pthread_rwlockattr_t *__attr)
     int pthread_rwlockattr_getpshared (const pthread_rwlockattr_t * __attr, int * __pshared)
@@ -606,19 +642,27 @@ ctypedef struct decode_from_file_struct:
     #
     # DECODE LOOP:
     #
+    #     Lock the mutex.
     #     If there is no disk reading thread running, no eof condition, and (count-start) mod buffer_size
     #     points to the start of a segment, we sem_trywait that segment's Free and if we get it,
-    #     try to read buffer_size/num_segments bytes from disk.  ENOBLOCK?  Or just block?
-    #     If we read the entire buffer, post its Disk and move on to the next buffer.
-    #     If we hit eof, write zeros into the next word, set eof, and post Disk.
+    #     set disk_reading_thread_active,
+    #     free the mutex and try to read buffer_size/num_segments bytes from disk.
+    #     If we read the entire segment, lock the mutex, post the segment's Disk,
+    #         signal one thread (if any) waiting on the condition variable,
+    #         unlock the mutex and move on to reading the next segment from disk.
+    #     If we hit eof, write zeros into the next word, lock the mutex, set eof, post Disk,
+    #         signal all threads waiting on the condition variable, and unlock the mutex.
     #     If we didn't read the entire buffer, keep reading until we finish it or get eof.
     #          (reading across buffers is more complicated, simplest is to do short reads)
     #     Goto START of DECODE LOOP
     #
     #     Otherwise, run through the segments, ideally starting at the one after (count-start) mod buffer_size,
-    #     sem_trywait'ing on Disk.  Keep going until we get one.  What if we get none?
+    #     sem_trywait'ing on Disk.  Keep going until we get one.  If we get none and eof is set,
+    #     then unlock the mutex return.
+    #     Otherwise, (the mutex is already locked) wait on the condition variable.  Afterwards, unlock the mutex.
+    #     (or just go to the beginning of the decode loop with the mutex already locked)
     #
-    #     Once we obtain a Disk segment and sem_trywait it, start decoding it.
+    #     Once we obtain a Disk segment and sem_trywait it, unlock the mutex and start decoding it.
     #
     #     Once a segment has been completed decoded, we post Ready.
     #     Goto START of DECODE LOOP
@@ -645,10 +689,24 @@ ctypedef struct decode_from_file_struct:
     ulong * exps
     fmpz * coeffs
 
+def decode_from_file_decoding_thread(ulong arg):
+    cdef decode_from_file_struct * state = <decode_from_file_struct *> arg
+
 cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> ptr
+    cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
+
+    if state.num_segments > 1:
+        # multi-threaded version
+        if (state.exps == NULL):
+            state.exps = <ulong *>malloc(state.buffer_size * N * sizeof(ulong))
+        if (index % (state.buffer_size / state.num_segments) == 0):
+            sem_wait(& state.segments_ready[(index % state.buffer_size) / state.num_segments])
+        fmpz_set(coeff, state.coeffs + (index % state.buffer_size))
+        mpoly_monomial_set(exp, state.exps + N*(index % state.buffer_size), N)
+        return
 
     while index == state.count:
         if index == 0:
@@ -693,15 +751,44 @@ cdef open_file_for_decoding(decode_from_file_struct *state, filename):
             raise Exception("open() failed on " + filename)
         state.FILE = NULL
     state.buffer_size = 1024
+    state.num_segments = 1
     state.start = 0
     state.count = 0
     state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
+
+    state.segments_free = <sem_t *> malloc(state.num_segments * sizeof(sem_t))
+    state.segments_disk = <sem_t *> malloc(state.num_segments * sizeof(sem_t))
+    state.segments_ready = <sem_t *> malloc(state.num_segments * sizeof(sem_t))
+    # can't malloc state.exps yet because I don't know what N is with bits and context
+    # state.exps = <ulong *>malloc(state.buffer_size * N * sizeof(ulong))
+    state.exps = NULL
+    state.coeffs = <fmpz *>malloc(state.buffer_size * sizeof(fmpz))
+    for i in range(state.num_segments):
+        sem_init(& state.segments_free[i], 0, 1)
+        sem_init(& state.segments_disk[i], 0, 0)
+        sem_init(& state.segments_ready[i], 0, 0)
 
 cdef close_file_for_decoding(decode_from_file_struct *state):
     """
     `state`'s buffer will also get free'd by this function.
     """
     free(state.buffer)
+    state.buffer = NULL
+    for i in range(state.num_segments):
+        sem_destroy(& state.segments_free[i])
+        sem_destroy(& state.segments_disk[i])
+        sem_destroy(& state.segments_ready[i])
+    free(state.segments_free)
+    free(state.segments_disk)
+    free(state.segments_ready)
+    free(state.exps)
+    free(state.coeffs)
+    state.segments_free = NULL
+    state.segments_disk = NULL
+    state.segments_ready = NULL
+    state.exps = NULL
+    state.coeffs = NULL
+
     if state.FILE != NULL:
         retval = pclose(state.FILE)
         if retval == -1:
