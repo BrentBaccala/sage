@@ -71,6 +71,10 @@ cdef extern from "<pthread.h>" nogil:
         pass
     ctypedef union pthread_mutexattr_t:
         pass
+    ctypedef union pthread_cond_t:
+        pass
+    ctypedef union pthread_condattr_t:
+        pass
     ctypedef union pthread_rwlock_t:
         pass
     ctypedef union pthread_rwlockattr_t:
@@ -108,6 +112,21 @@ cdef extern from "<pthread.h>" nogil:
     int pthread_mutexattr_getrobust_np (const pthread_mutexattr_t *__attr, int *__robustness)
     int pthread_mutexattr_setrobust (pthread_mutexattr_t *__attr, int __robustness)
     int pthread_mutexattr_setrobust_np (pthread_mutexattr_t *__attr, int __robustness)
+
+    int pthread_cond_init (pthread_cond_t * __cond, const pthread_condattr_t * __cond_attr)
+    int pthread_cond_destroy (pthread_cond_t *__cond)
+    int pthread_cond_signal (pthread_cond_t *__cond)
+    int pthread_cond_broadcast (pthread_cond_t *__cond)
+    int pthread_cond_wait (pthread_cond_t * __cond, pthread_mutex_t * __mutex)
+    int pthread_cond_timedwait (pthread_cond_t * __cond, pthread_mutex_t * __mutex, const timespec * __abstime)
+    int pthread_cond_clockwait (pthread_cond_t * __cond, pthread_mutex_t * __mutex,
+                                clockid_t __clock_id, const timespec * __abstime)
+    int pthread_condattr_init (pthread_condattr_t *__attr)
+    int pthread_condattr_destroy (pthread_condattr_t *__attr)
+    int pthread_condattr_getpshared (const pthread_condattr_t * __attr, int * __pshared)
+    int pthread_condattr_setpshared (pthread_condattr_t *__attr, int __pshared)
+    int pthread_condattr_getclock (const pthread_condattr_t * __attr, clockid_t * __clock_id)
+    int pthread_condattr_setclock (pthread_condattr_t *__attr, clockid_t __clock_id)
 
     int pthread_rwlock_init (pthread_rwlock_t * __rwlock, const pthread_rwlockattr_t * __attr)
     int pthread_rwlock_destroy (pthread_rwlock_t *__rwlock)
