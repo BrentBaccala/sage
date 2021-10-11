@@ -622,6 +622,9 @@ ctypedef struct decode_from_file_struct:
     encoding_format * format
     FILE * FILE
     int fd
+    fmpz_mpoly_ctx_struct * ctx
+
+    flint_bitcnt_t bits
 
     # `buffer` contains the bytes as they are read in from disk.
     #
@@ -725,7 +728,7 @@ def decode_from_file_disk_reading_thread(ulong arg):
         offset_in_segment = state.count % (state.buffer_size / state.num_segments)
         segment_number = (state.count % state.buffer_size) / state.num_segments
         if offset_in_segment == 0:
-            sem_wait(& state.segments_free[(count % buffer_size) / num_segments])
+            sem_wait(& state.segments_free[(state.count % state.buffer_size) / state.num_segments])
         if state.count == 0:
             state.trailing_bytes = 0
         at_end_of_segment = ((state.count + 1) % (state.buffer_size / state.num_segments)) != 0
@@ -739,7 +742,8 @@ def decode_from_file_disk_reading_thread(ulong arg):
                 state.eof = 1
                 if state.trailing_bytes != 0:
                     raise_(SIGSEGV)
-                fmpz_set_si(coeff, 0)
+                # XXX figure how to handle EOF
+                # fmpz_set_si(coeff, 0)
             else:
                 retval += state.trailing_bytes
                 state.trailing_bytes = retval % (state.format.words * sizeof(ulong))
@@ -756,20 +760,24 @@ def decode_from_file_disk_reading_thread(ulong arg):
 def decode_from_file_decoding_thread(ulong arg):
     cdef decode_from_file_struct * state = <decode_from_file_struct *> arg
     cdef ulong offset_in_segment
+    cdef ulong segment
     cdef ulong segment_number
+    cdef slong N = mpoly_words_per_exp(state.bits, state.ctx.minfo)
 
     pthread_mutex_lock(& state.mutex)
 
     while not state.eof:
         offset_in_segment = state.count % (state.buffer_size / state.num_segments)
         segment_number = (state.count % state.buffer_size) / state.num_segments
-        for offset in range(num_segments):
-            segment = (segment_number + 1 + offset) % num_segments
+        for offset in range(state.num_segments):
+            segment = (segment_number + 1 + offset) % state.num_segments
             if sem_trywait(& state.segments_disk[segment_number]):
                 pthread_mutex_unlock(& state.mutex)
                 # decode it
                 for i in range(state.segment_size):
-                    decode_from_mem(state.format, state.buffer + state.format.words*(index-state.start), bits, state.exp, state.coeff, ctx)
+                    decode_from_mem(state.format, state.buffer + state.format.words * segment * state.segment_size,
+                                    state.bits, state.exps + N * segment * state.segment_size,
+                                    state.coeffs + segment * state.segment_size, state.ctx)
 
                 sem_post(& state.segments_ready[segment_number])
                 pthread_mutex_lock(& state.mutex)
@@ -1302,7 +1310,8 @@ cdef void load_from_decoded_buffer(void * poly, slong index, flint_bitcnt_t bits
     fmpz_set(coeff, state.coeffs + (index % state.buffer_size))
 
     if (index+1) % (state.buffer_size / state.num_segments) == 0:
-        sem_post(& state.segments_free[(index % state.buffer_size) % state.num_segments])
+        #sem_post(& state.segments_free[(index % state.buffer_size) % state.num_segments])
+        sem_post(& state.segments_free)
 
 ctypedef struct read_and_decode_file_data:
     load_from_decoded_buffer_struct * loader_state
