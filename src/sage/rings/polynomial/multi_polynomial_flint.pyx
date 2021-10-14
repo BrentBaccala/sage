@@ -998,7 +998,10 @@ def copy_from_file(R, filename="bigflint.out"):
     close_file_for_decoding(& state)
     return np
 
-cdef ulong of3_last_radii = UINT64_MAX
+# Substitute variables by reading a polynomial in an input file in
+# blocks with each block having identical substituted variables.
+
+cdef ulong substitute_last_radii = UINT64_MAX
 cdef ulong radii_block_size = 0
 cdef ulong radii_count = 0
 cdef ulong * radii_exp_block = NULL
@@ -1017,97 +1020,73 @@ ctypedef struct output_block_data:
     ulong count
     flint_bitcnt_t bits
     fmpz_mpoly_ctx_t ctx
+    encoding_format * format
 
 radii_info = {}
 
-cdef void output_block2(output_block_data * data):
+substitute_threads = []
+substitute_thread_limit = 12
+substitute_thread_semaphore = threading.Semaphore(substitute_thread_limit)
+
+# We can't pass C pointers to Python functions, but we need a Python
+# function to pass to threading.Thread, so we convert the pointer to a
+# ulong, pass it to this function, and then cast it back to a pointer.
+
+cpdef substitute_output_block(ulong arg1):
+    cdef output_block_data * data = <output_block_data *> arg1;
     global r1poly, r2poly, r12poly
-    cdef MPolynomial_flint flintpoly
-    cdef fmpz_mpoly_struct of3_poly
-    # cdef fmpz_mpoly_struct of3_fptr[1+4+4+4]
-    cdef const fmpz_mpoly_struct ** of3_fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * 2)
-    cdef slong of3_iptr[1]
-    cdef encode_to_file_struct * state
+    cdef fmpz_mpoly_struct poly1
+    cdef MPolynomial_flint poly2
+    cdef void * fptr[2]
+    cdef slong iptr[1]
+    cdef encode_to_file_struct state
     cdef int r1_power, r2_power, r12_power
-    cdef FILE * popen_FILE
 
     filename = "radii-{}.out.gz".format(data.radii)
 
     if not os.path.isfile(filename):
 
-        of3_poly.coeffs = data.coeffs
-        of3_poly.exps = data.exp
-        of3_poly.length = data.count
-        of3_poly.bits = data.bits
-        of3_fptr[0] = & of3_poly
+        poly1.coeffs = data.coeffs
+        poly1.exps = data.exp
+        poly1.length = data.count
+        poly1.bits = data.bits
 
         # discard LSBs; they were presevered below when the exponents were stored
         r1_power = ((data.radii >> 16) & 254) / 2
         r2_power = ((data.radii >> 8) & 254) / 2
         r12_power = (data.radii & 254) / 2
-        factor = r1poly**r1_power * r2poly**r2_power * r12poly**r12_power
-        flintpoly = factor
-        of3_fptr[1] = <const fmpz_mpoly_struct *>flintpoly._poly
-        of3_iptr[0] = 2
+        poly2 = r1poly**r1_power * r2poly**r2_power * r12poly**r12_power
 
-        state = <encode_to_file_struct *> malloc(sizeof(encode_to_file_struct))
+        fptr[0] = <void *> & poly1
+        fptr[1] = <void *> poly2._poly
+        iptr[0] = 2
 
-        command = "gzip > {}".format(filename)
-        command_type = "w"
-        popen_FILE = popen(command.encode(), command_type.encode())
-        if popen_FILE == NULL:
-            raise Exception("popen() failed on gzip > " + filename)
+        state.format = data.format
+        open_file_for_encoding(& state, filename)
 
-        # I'd prefer to dup the file descriptor and close the buffered popen
-        # to avoid any kind of conflict between the buffered file I/O and
-        # the raw I/O that we use, but pclose'ing (or fclose'ing) a popen'ed FILE
-        # will wait for the process to terminate.
-
-        state.fd = fileno(popen_FILE)
-        if state.fd == -1:
-            raise Exception("fileno() failed on " + filename)
-
-        radii_info[data.radii] = (data.count, len(factor))
-
-        state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-        state.buffer_size = 1024
-        state.count = 0
+        radii_info[data.radii] = (data.count, poly2._poly.length)
 
         with nogil:
-            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> state, of3_fptr, of3_iptr, 1, data.ctx, encode_to_file_returning_status)
+            fmpz_mpoly_addmul_multi_threaded_abstract(<void *> &state, <const fmpz_mpoly_struct **> fptr, iptr, 1, data.ctx, encode_to_file_returning_status)
 
         radii_info[data.radii] += (state.total,)
-        pclose(popen_FILE)
-        free(state.buffer)
-        free(state)
+
+        close_file_for_encoding(& state)
 
     else:
 
         print("Skipping radii", data.radii, "(file exists)", file=sys.stderr)
 
-    free(of3_fptr)
     free(data.coeffs)
     free(data.exp)
-
-# This is here because we can't pass C pointers to Python functions, but we need a Python
-# function to pass to threading.Thread, so we convert all the pointers to ulong's, pass
-# them through this function, and then cast them back to pointers.
-
-of3_threads = []
-of3_thread_limit = 12
-of3_thread_semaphore = threading.Semaphore(of3_thread_limit)
-
-cpdef output_block(ulong arg1):
-    cdef output_block_data * data = <output_block_data *> arg1;
-    output_block2(data)
     free(data)
-    of3_thread_semaphore.release()
+    substitute_thread_semaphore.release()
 
 # Output function for the substitution routine
 
-cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    global of3_last_radii
-    global of3_threads, of3_thread_limit, of3_thread_semaphore
+cdef void substitute_output_function(void * format, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    global substitute_last_radii
+    global substitute_threads, substitute_thread_limit, substitute_thread_semaphore
     global radii_block_size, radii_count, radii_exp_block, radii_coeff_block
     cdef unsigned char * exps
     cdef output_block_data * data
@@ -1120,25 +1099,26 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
     else:
         current_radii = (exp[15] >> 56) | (exp[16] << 8)
 
-    if (current_radii != of3_last_radii):
-        if of3_last_radii != UINT64_MAX:
+    if (current_radii != substitute_last_radii):
+        if substitute_last_radii != UINT64_MAX:
             # start a new thread to multiply and output polynomial
             with gil:
                 data = <output_block_data *> malloc(sizeof(output_block_data))
-                data.radii = of3_last_radii
+                data.radii = substitute_last_radii
                 data.exp = radii_exp_block
                 data.coeffs = <fmpz *> radii_coeff_block
                 data.count = radii_count
                 data.bits = bits
                 data.ctx = ctx
-                of3_thread_semaphore.acquire()
-                th = threading.Thread(target = output_block, args = (<ulong> data,))
+                data.format = <encoding_format *> format
+                substitute_thread_semaphore.acquire()
+                th = threading.Thread(target = substitute_output_block, args = (<ulong> data,))
                 th.start()
-                of3_threads.append(th)
+                substitute_threads.append(th)
             radii_exp_block = NULL
             radii_coeff_block = NULL
             radii_block_size = 0
-        of3_last_radii = current_radii
+        substitute_last_radii = current_radii
         radii_count = 0
 
     if radii_count >= radii_block_size:
@@ -1171,7 +1151,7 @@ cdef void output_function3(void * poly, slong index, flint_bitcnt_t bits, ulong 
 
 def substitute_file(R, filename="bigflint.out"):
     global r1poly, r2poly, r12poly
-    global of3_threads
+    global substitute_threads
     x1 = R.gens_dict()['x1']
     y1 = R.gens_dict()['y1']
     z1 = R.gens_dict()['z1']
@@ -1183,26 +1163,21 @@ def substitute_file(R, filename="bigflint.out"):
     r12poly = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
     cdef MPolynomialRing_flint parent = R
 
-    cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *))
-    cdef decode_from_file_struct * state = <decode_from_file_struct *> malloc(sizeof(decode_from_file_struct))
-    state.fd = open(filename.encode(), O_RDONLY)
-    if state.fd == -1:
-        raise Exception("open() failed")
-    state.buffer = <ulong *>malloc(3 * 1024 * sizeof(ulong))
-    state.buffer_size = 1024
-    state.start = 0
-    state.count = 0
-    fptr[0] = <fmpz_mpoly_struct *> state
+    cdef const void * fptr[1]
+    cdef decode_from_file_struct state
+    state.format = & parent._encoding_format
+    state.bits = 8
+    state.ctx = & parent._ctx[0]
+    open_file_for_decoding(& state, filename)
+    fptr[0] = <void *> &state
 
     with nogil:
-        fmpz_mpoly_abstract_add(NULL, <void **> fptr, 1, 8, parent._ctx, decode_from_file, output_function3)
+        fmpz_mpoly_abstract_add(<void *> & parent._encoding_format, fptr, 1, 8, parent._ctx, decode_from_file, substitute_output_function)
 
-    close(state.fd)
-    free(state.buffer)
-    free(state)
+    close_file_for_decoding(& state)
 
-    for th in of3_threads: th.join()
-    of3_threads = []
+    for th in substitute_threads: th.join()
+    substitute_threads = []
 
 cdef ulong of2_count = 0
 
