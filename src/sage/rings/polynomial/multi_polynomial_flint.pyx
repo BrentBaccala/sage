@@ -35,6 +35,7 @@ from sage.libs.flint.fmpz_mpoly_factor cimport *
 from libc.stdlib cimport malloc, realloc, free
 from libc.stdint cimport UINT64_MAX
 from libc.signal cimport raise_, SIGSEGV
+from libc.errno cimport errno, EAGAIN
 from posix.stdio cimport FILE, popen, fileno, pclose
 from posix.strings cimport bcopy
 from posix.fcntl cimport creat, open, O_RDONLY
@@ -796,6 +797,8 @@ def decode_from_file_decoding_thread(ulong arg):
                     sem_post(& state.segments_ready[segment])
                     pthread_mutex_lock(& state.mutex)
                     break
+                elif errno != EAGAIN:
+                    raise_(SIGSEGV)
             else:
                 if state.eof:
                     break
