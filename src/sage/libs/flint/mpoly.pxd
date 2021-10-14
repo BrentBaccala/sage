@@ -35,7 +35,7 @@ cdef inline ulong UWORD(ulong i) nogil:
     return i
 
 cdef inline ulong mpoly_overflow_mask_sp(flint_bitcnt_t bits) nogil:
-    cdef slong i
+    cdef ulong i
     cdef ulong mask = 0
 
     for i in range(FLINT_BITS/bits):

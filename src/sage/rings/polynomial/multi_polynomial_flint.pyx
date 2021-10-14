@@ -313,7 +313,7 @@ cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps, int rev
 
     cdef ulong d = total_degree
     cdef unsigned char this_exp
-    cdef int i
+    cdef ulong i
     for i in range(0, len_exps-1):
         this_exp = 0
         while True:
@@ -451,7 +451,7 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         buffer.count = 0
     if index == -1:
         return
-    if index >= buffer.buffer_size:
+    if <ulong>index >= buffer.buffer_size:
         buffer.buffer_size += 1024
         buffer.buffer = <ulong *>realloc(buffer.buffer, buffer.format.words * buffer.buffer_size * sizeof(ulong))
 
@@ -1228,7 +1228,7 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
             status_string_ptr = status_string_encode
         return status_string_ptr
 
-    if of2_count != index:
+    if of2_count != <ulong>index:
         raise_(SIGSEGV)
     of2_count += 1
 
@@ -1449,7 +1449,7 @@ def sum_files(R, filename_list=[], filename=None):
 
     cdef encode_to_file_struct encoding_state
     cdef FILE * encoding_FILE = NULL
-    cdef int j
+    cdef ulong j
 
     if filename != None:
         if filename.endswith('.gz'):
