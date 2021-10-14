@@ -849,9 +849,11 @@ cdef void decode_from_file(void * ptr, ulong index, flint_bitcnt_t bits, ulong *
 
 cdef open_file_for_decoding(decode_from_file_struct *state, filename):
     """
-    `state` needs to have its `format` field set correctly.  Everything else
+    `state` needs to have its `format`, `bits`, and `ctx` fields set correctly.  Everything else
     gets filled in here, including malloc'ing a buffer.
     """
+    cdef ulong i
+
     if filename.endswith('.gz'):
         command = "zcat {}".format(filename)
         command_type = "r"
@@ -885,6 +887,8 @@ cdef open_file_for_decoding(decode_from_file_struct *state, filename):
     state.segments_ready = <sem_t *> malloc(state.num_segments * sizeof(sem_t))
     state.exps = <ulong *>malloc(state.buffer_size * N * sizeof(ulong))
     state.coeffs = <fmpz *>malloc(state.buffer_size * sizeof(fmpz))
+    for i in range(state.buffer_size):
+        fmpz_init(state.coeffs + i)
     pthread_mutex_init(& state.mutex, NULL)
     pthread_cond_init(& state.condvar, NULL)
     for i in range(state.num_segments):
