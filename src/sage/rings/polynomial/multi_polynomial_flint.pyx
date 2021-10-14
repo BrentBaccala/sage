@@ -848,7 +848,7 @@ cdef void decode_from_file(void * ptr, ulong index, flint_bitcnt_t bits, ulong *
 
     decode_from_mem(state.format, state.buffer + state.format.words*(index-state.start), bits, exp, coeff, ctx)
 
-cdef open_file_for_decoding(decode_from_file_struct *state, filename):
+cdef open_file_for_decoding(decode_from_file_struct *state, filename, num_decoding_threads=1):
     """
     `state` needs to have its `format`, `bits`, and `ctx` fields set correctly.  Everything else
     gets filled in here, including malloc'ing a buffer.
@@ -873,7 +873,7 @@ cdef open_file_for_decoding(decode_from_file_struct *state, filename):
         if state.fd == -1:
             raise Exception("open() failed on " + filename)
         state.FILE = NULL
-    state.num_segments = 12
+    state.num_segments = num_decoding_threads
     state.segment_size = 1024
     state.buffer_size = state.num_segments * state.segment_size
     state.start = 0
