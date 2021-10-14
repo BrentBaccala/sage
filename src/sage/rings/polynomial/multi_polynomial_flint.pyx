@@ -735,8 +735,9 @@ def decode_from_file_disk_reading_thread(ulong arg):
             if state.count == 0:
                 state.trailing_bytes = 0
             while not state.eof:
+                offset_in_segment = state.count % state.segment_size
                 start_of_read = (<char *>state.buffer) + state.format.words * sizeof(ulong) * (state.count % state.buffer_size) + state.trailing_bytes
-                length_of_read = state.format.words * sizeof(ulong) * (state.buffer_size / state.num_segments - offset_in_segment)- state.trailing_bytes
+                length_of_read = state.format.words * sizeof(ulong) * (state.segment_size - offset_in_segment) - state.trailing_bytes
                 retval = read(state.fd, start_of_read, length_of_read)
                 if retval == -1:
                     raise_(SIGSEGV)
