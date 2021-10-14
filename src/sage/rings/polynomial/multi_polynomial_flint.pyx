@@ -458,7 +458,7 @@ cdef void encode_to_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong *
 
     buffer.count += 1
 
-cdef void decode_from_buffer(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef void decode_from_buffer(void * ptr, ulong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef Buffer_structure * buffer = <Buffer_structure *> ptr
 
     if index >= buffer.count:
@@ -803,15 +803,15 @@ def decode_from_file_decoding_thread(ulong arg):
 
         pthread_mutex_unlock(& state.mutex)
 
-cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef void decode_from_file(void * ptr, ulong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef decode_from_file_struct * state = <decode_from_file_struct *> ptr
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
     cdef unsigned char * exps = <unsigned char *> exp
     cdef int retval
 
     if state.num_segments > 1:
-        if (index % (state.buffer_size / state.num_segments) == 0):
-            sem_wait(& state.segments_ready[(index % state.buffer_size) / state.num_segments])
+        if (index % state.segment_size == 0):
+            sem_wait(& state.segments_ready[(index % state.buffer_size) / state.segment_size])
         if index == state.count:
             if not state.eof:
                 raise_(SIGSEGV)
@@ -819,8 +819,10 @@ cdef void decode_from_file(void * ptr, slong index, flint_bitcnt_t bits, ulong *
         else:
             fmpz_set(coeff, state.coeffs + (index % state.buffer_size))
             mpoly_monomial_set(exp, state.exps + N*(index % state.buffer_size), N)
-        if ((index + 1) % (state.buffer_size / state.num_segments) == 0):
-            sem_post(& state.segments_free[(index % state.buffer_size) / state.num_segments])
+        if ((index + 1) % state.segment_size == 0):
+            # with gil:
+            #     print("posting segments_free", (index % state.buffer_size) / state.segment_size)
+            sem_post(& state.segments_free[(index % state.buffer_size) / state.segment_size])
         return
 
     while index == state.count:
@@ -865,7 +867,7 @@ cdef open_file_for_decoding(decode_from_file_struct *state, filename):
         if state.fd == -1:
             raise Exception("open() failed on " + filename)
         state.FILE = NULL
-    state.num_segments = 4
+    state.num_segments = 12
     state.segment_size = 1024
     state.buffer_size = state.num_segments * state.segment_size
     state.start = 0
@@ -1298,6 +1300,8 @@ def verify_file(R, filename="bigflint.out"):
     cdef void * fptr[1]
     cdef decode_from_file_struct state
     state.format = & parent._encoding_format
+    state.bits = 8
+    state.ctx = & parent._ctx[0]
     open_file_for_decoding(& state, filename)
     fptr[0] = <void *> &state
 
@@ -1327,7 +1331,7 @@ ctypedef struct load_from_decoded_buffer_struct:
     ulong buffer_size
     ulong num_segments
 
-cdef void load_from_decoded_buffer(void * poly, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+cdef void load_from_decoded_buffer(void * poly, ulong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef load_from_decoded_buffer_struct * state = <load_from_decoded_buffer_struct *> poly
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
 
