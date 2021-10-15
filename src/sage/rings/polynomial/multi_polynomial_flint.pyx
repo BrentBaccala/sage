@@ -209,10 +209,12 @@ pthread_rwlockattr_init(& deglex_table_rwlockattr)
 pthread_rwlockattr_setkind_np(& deglex_table_rwlockattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)
 pthread_rwlock_init(& deglex_table_rwlock, & deglex_table_rwlockattr)
 
+cdef int require_deglex_table_prefilled = 1
+
 cpdef void deglex_fill_table(ulong setsize, ulong num, ulong offset) nogil:
-    global deglex_table, deglex_table_size
+    global deglex_table, deglex_table_size, require_deglex_table_prefilled
     cdef ulong size
-    if pthread_rwlock_wrlock(& deglex_table_rwlock) != 0:
+    if require_deglex_table_prefilled or pthread_rwlock_wrlock(& deglex_table_rwlock) != 0:
         raise_(SIGSEGV)
     with gil:
         if setsize >= deglex_table_size:
@@ -243,9 +245,13 @@ cpdef void deglex_fill_table(ulong setsize, ulong num, ulong offset) nogil:
         raise_(SIGSEGV)
 
 def deglex_prefill_table(num_exps, max_degree):
+    global require_deglex_table_prefilled
+    save_require_deglex_table_prefilled = require_deglex_table_prefilled
+    require_deglex_table_prefilled = 0
     for i in range(num_exps+1):
         for j in range(max_degree+1):
             deglex_fill_table(i, j, max_degree)
+    require_deglex_table_prefilled = save_require_deglex_table_prefilled
 
 cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
     """
@@ -254,14 +260,17 @@ cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
             sage: deglex_coeff(60, 0, 3)
             0
     """
-    global deglex_table, deglex_table_size
+    global deglex_table, deglex_table_size, require_deglex_table_prefilled
     cdef ulong retval
 
-    if pthread_rwlock_rdlock(& deglex_table_rwlock) != 0:
-        raise_(SIGSEGV)
+    if not require_deglex_table_prefilled:
+        if pthread_rwlock_rdlock(& deglex_table_rwlock) != 0:
+            raise_(SIGSEGV)
 
     if setsize >= deglex_table_size or num >= deglex_table[setsize].size \
        or offset - (num-1) >= deglex_table[setsize].table[num].size:
+        if require_deglex_table_prefilled:
+            raise_(SIGSEGV)
         if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
             raise_(SIGSEGV)
         deglex_fill_table(setsize, num, offset)
@@ -269,8 +278,9 @@ cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
             raise_(SIGSEGV)
 
     retval = deglex_table[setsize].table[num].table[offset - (num-1)]
-    if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
-        raise_(SIGSEGV)
+    if not require_deglex_table_prefilled:
+        if pthread_rwlock_unlock(& deglex_table_rwlock) != 0:
+            raise_(SIGSEGV)
     return retval
 
 # Functions to encode and decode deglex exponents
