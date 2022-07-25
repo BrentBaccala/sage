@@ -287,7 +287,7 @@ cpdef ulong deglex_coeff(ulong setsize, ulong num, ulong offset) nogil:
 
 # encoding raises SIGSEGV in an overflow situation
 
-cdef ulong encode_deglex(unsigned char * exps, ulong len_exps, int rev=0) nogil:
+cdef ulong encode_deglex(ulong * exps, ulong len_exps, int rev=0) nogil:
     cdef ulong delta = 0
     cdef ulong i
     cdef ulong exp
@@ -302,7 +302,7 @@ cdef ulong encode_deglex(unsigned char * exps, ulong len_exps, int rev=0) nogil:
 
 def encode_deglex_test(exps):
     cdef ulong len_exps = len(exps)
-    cdef unsigned char * cexps = <unsigned char *> malloc(len_exps)
+    cdef ulong * cexps = <ulong *> malloc(len_exps)
     for i in range(len_exps): cexps[i] = exps[i]
     cdef retval = encode_deglex(cexps, len_exps)
     free(cexps)
@@ -313,9 +313,10 @@ def encode_deglex_test(exps):
 #
 # Maybe these loops could be replaced with binary search for speed
 
-cdef void decode_deglex(ulong ind, unsigned char * exps, ulong len_exps, int rev=0) nogil:
+cdef void decode_deglex(ulong ind, ulong * exps, ulong len_exps, int rev=0) nogil:
     cdef ulong total_degree = 0
     cdef ulong ind_saved = ind
+
     while True:
         if ind < deglex_coeff(len_exps, total_degree+1, total_degree): break
         total_degree += 1
@@ -348,7 +349,7 @@ def decode_deglex_test(ind, len_exps):
         sage: decode_deglex_test(803, 4)
         [1, 2, 3, 4]
     """
-    cdef unsigned char * cexps = <unsigned char *> malloc(len_exps)
+    cdef ulong * cexps = <ulong *> malloc(len_exps*sizeof(ulong))
     decode_deglex(ind, cexps, len_exps)
     retval = []
     for i in range(len_exps): retval.append(cexps[i])
@@ -358,15 +359,17 @@ def decode_deglex_test(ind, len_exps):
 # Encode/decode to/from a pointer to an address in memory
 
 cdef void encode_to_mem(encoding_format * format, ulong * dest, flint_bitcnt_t bits, const ulong * exp, const fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
-    cdef unsigned char * exps = <unsigned char *> exp
     cdef int nvarsencoded = 0
     cdef int i
-    if bits != 8:
+    cdef ulong user_exps[256]
+    if ctx.minfo.nvars > 256:
         # NotImplementedError, but we can't raise Python exceptions in a callback function
+        # should have some way to dynamically size user_exps, but this is easier for now
         raise_(SIGSEGV)
     if fmpz_is_mpz(coeff):
         # Can't currently encode bigints
         raise_(SIGSEGV)
+    mpoly_get_monomial_ui_sp(user_exps, exp, bits, ctx.minfo)
     for i in range(format.words):
         if format.variables[i] > 0:
             # ctx.minfo.rev indicates if our ordering is reversed in the mathematical sense (degrevlex)
@@ -374,33 +377,36 @@ cdef void encode_to_mem(encoding_format * format, ulong * dest, flint_bitcnt_t b
             # reversed the variables in the array if "not ctx.minfo.rev", so we need to reverse the
             # order than we encode and decode if "not ctx.minfo.rev".
             if ctx.minfo.rev:
-                dest[i] = encode_deglex(exps + nvarsencoded, format.variables[i])
+                dest[i] = encode_deglex(user_exps + nvarsencoded, format.variables[i])
             else:
-                dest[i] = encode_deglex(exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
+                dest[i] = encode_deglex(user_exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
             nvarsencoded += format.variables[i]
         else:
             dest[i] = (<ulong *>coeff)[0]
 
 cdef void decode_from_mem(encoding_format * format, const ulong * src, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
     cdef slong N = mpoly_words_per_exp(bits, ctx.minfo)
-    cdef unsigned char * exps = <unsigned char *> exp
     cdef int i
     cdef int nvarsencoded = 0
-    if bits != 8:
+    cdef ulong user_exps[256]
+    if ctx.minfo.nvars > 256:
         # NotImplementedError, but we can't raise Python exceptions in a callback function
+        # should have some way to dynamically size user_exps, but this is easier for now
         raise_(SIGSEGV)
-    # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-    exp[N-1] = 0
     for i in range(format.words):
         if format.variables[i] > 0:
             # see comment in encode_to_mem
             if ctx.minfo.rev:
-                decode_deglex(src[i], exps + nvarsencoded, format.variables[i])
+                decode_deglex(src[i], user_exps + nvarsencoded, format.variables[i])
             else:
-                decode_deglex(src[i], exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
+                decode_deglex(src[i], user_exps + ctx.minfo.nvars - nvarsencoded - format.variables[i], format.variables[i], rev=1)
             nvarsencoded += format.variables[i]
         else:
             fmpz_set_si(coeff, src[i])
+    if nvarsencoded != ctx.minfo.nvars:
+        # some kind of internal error caused the number of vars in the format to differ from the number of vars in the ctx
+        raise_(SIGSEGV)
+    mpoly_set_monomial_ui(exp, user_exps, bits, ctx.minfo)
 
 
 # Encode/decode to/from a memory buffer
@@ -490,14 +496,12 @@ def copy_to_buffer(p):
     """
     cdef MPolynomial_flint np = p
     cdef MPolynomialRing_flint parent = p.parent()
-    if np._poly.bits != 8:
-        raise NotImplementedError("copy_to_buffer currently only works with 8 bit exponents")
     cdef void * fptr[1]
     fptr[0] = <void *>np._poly
     buffer = Buffer(parent)
     cdef Buffer cbuffer = buffer
     with nogil:
-        fmpz_mpoly_abstract_add(<void *> &cbuffer.buffer, fptr, 1, 8, parent._ctx, NULL, encode_to_buffer)
+        fmpz_mpoly_abstract_add(<void *> &cbuffer.buffer, fptr, 1, np._poly.bits, parent._ctx, NULL, encode_to_buffer)
     return buffer
 
 def copy_from_buffer(buffer):
@@ -546,8 +550,6 @@ def copy_from_buffer(buffer):
     cdef Buffer cbuffer = buffer
     cdef MPolynomialRing_flint parent = cbuffer.R
     cdef MPolynomial_flint np = MPolynomial_flint.__new__(MPolynomial_flint)
-    if np._poly.bits != 8:
-        raise NotImplementedError("copy_from_buffer currently only works with 8 bit exponents")
     np._parent = parent
     cdef void * fptr[1]
     fptr[0] = <void *> &cbuffer.buffer
@@ -999,12 +1001,12 @@ def copy_from_file(R, filename="bigflint.out"):
     cdef decode_from_file_struct state
 
     state.format = & parent._encoding_format
-    state.bits = 8
+    state.bits = np._poly.bits
     state.ctx = & parent._ctx[0]
     open_file_for_decoding(& state, filename)
     fptr[0] = <void *> &state
     with nogil:
-        fmpz_mpoly_abstract_add(np._poly, fptr, 1, 8, parent._ctx, decode_from_file, NULL)
+        fmpz_mpoly_abstract_add(np._poly, fptr, 1, np._poly.bits, parent._ctx, decode_from_file, NULL)
     close_file_for_decoding(& state)
     return np
 
@@ -1293,6 +1295,7 @@ def verify_file(R, filename="bigflint.out"):
     cdef void * fptr[1]
     cdef decode_from_file_struct state
     state.format = & parent._encoding_format
+    # XXX bits is hardwired here
     state.bits = 8
     state.ctx = & parent._ctx[0]
     open_file_for_decoding(& state, filename)
@@ -1340,6 +1343,8 @@ cdef void load_from_decoded_buffer(void * poly, ulong index, flint_bitcnt_t bits
 
 ctypedef struct read_and_decode_file_data:
     load_from_decoded_buffer_struct * loader_state
+    fmpz_mpoly_ctx_t ctx
+    encoding_format * format
     int fd
     ulong buffer_size
     flint_bitcnt_t bits
@@ -1355,22 +1360,21 @@ ctypedef struct read_and_decode_file_data:
 cdef void read_and_decode_one_buffer(read_and_decode_file_data * state) nogil:
     cdef int retval
     cdef ulong * exp
-    cdef unsigned char * exps
 
     while not state.eof and state.index == state.count:
         if state.trailing_bytes > 0:
-            bcopy(state.buffer + 3 * (state.count - state.start), state.buffer, state.trailing_bytes)
+            bcopy(state.buffer + state.format.words * (state.count - state.start), state.buffer, state.trailing_bytes)
         state.start = state.count
         retval = read(state.fd, (<char *>state.buffer) + state.trailing_bytes,
-                      3 * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
+                      state.format.words * state.buffer_size * sizeof(ulong) - state.trailing_bytes)
         if retval == -1:
             raise_(SIGSEGV)
         if retval == 0:
             state.eof = 1
         else:
             retval += state.trailing_bytes
-            state.trailing_bytes = retval % (3 * sizeof(ulong))
-            state.count += retval / (3 * sizeof(ulong))
+            state.trailing_bytes = retval % (state.format.words * sizeof(ulong))
+            state.count += retval / (state.format.words * sizeof(ulong))
 
     while state.index < state.count:
 
@@ -1378,17 +1382,9 @@ cdef void read_and_decode_one_buffer(read_and_decode_file_data * state) nogil:
             sem_wait(& state.loader_state.segments_free)
 
         exp = state.loader_state.exps + state.N*(state.index % state.loader_state.buffer_size)
-        exps = <unsigned char *> exp
 
-        # need to make sure that the final trailing bytes are set to zero, which decode_deglex won't do
-        exp[16] = 0
-        decode_deglex(state.buffer[3*(state.index-state.start)], exps, 118)
-        decode_deglex(state.buffer[3*(state.index-state.start)+1], exps+ 118, 12)
-        if (exps[127] > 8) or (exps[128] > 8) or (exps[129] > 8):
-            raise_(SIGSEGV)
-
-        fmpz_set_si(state.loader_state.coeffs + (state.index % state.loader_state.buffer_size),
-                    state.buffer[3*(state.index-state.start)+2])
+        decode_from_mem(state.format, state.buffer + state.format.words*(state.index-state.start), state.bits, exp,
+                        state.loader_state.coeffs + (state.index % state.loader_state.buffer_size), state.ctx)
 
         if (state.index+1) % (state.loader_state.buffer_size / state.loader_state.num_segments) == 0:
             sem_post(& state.loader_state.segments_ready_to_load)
