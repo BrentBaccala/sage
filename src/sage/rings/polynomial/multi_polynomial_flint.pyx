@@ -206,7 +206,7 @@ cdef pthread_rwlock_t deglex_table_rwlock
 cdef pthread_rwlockattr_t deglex_table_rwlockattr
 
 pthread_rwlockattr_init(& deglex_table_rwlockattr)
-pthread_rwlockattr_setkind_np(& deglex_table_rwlockattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)
+# pthread_rwlockattr_setkind_np(& deglex_table_rwlockattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP)
 pthread_rwlock_init(& deglex_table_rwlock, & deglex_table_rwlockattr)
 
 cdef int require_deglex_table_prefilled = 1
@@ -731,6 +731,10 @@ ctypedef struct decode_from_file_struct:
     ulong * exps
     fmpz * coeffs
 
+    ulong status_array[1024]
+    ulong status_index
+
+
 def decode_from_file_disk_reading_thread(ulong arg):
     cdef decode_from_file_struct * state = <decode_from_file_struct *> arg
     cdef ulong offset_in_segment
@@ -765,6 +769,8 @@ def decode_from_file_disk_reading_thread(ulong arg):
                     if at_end_of_segment:
                         break
             pthread_mutex_lock(& state.mutex)
+            # state.status_array[state.status_index] = segment_number + 1000*state.count
+            # state.status_index += 1
             # with gil:
             #     print("posting segments_disk", segment_number, "count", state.count, "eof", state.eof)
             sem_post(& state.segments_disk[segment_number])
@@ -775,7 +781,7 @@ def decode_from_file_disk_reading_thread(ulong arg):
                 pthread_cond_signal(& state.condvar)
             pthread_mutex_unlock(& state.mutex)
 
-def decode_from_file_decoding_thread(ulong arg):
+cpdef decode_from_file_decoding_thread(ulong arg):
     cdef decode_from_file_struct * state = <decode_from_file_struct *> arg
     cdef ulong offset
     cdef ulong offset_in_segment
@@ -792,12 +798,16 @@ def decode_from_file_decoding_thread(ulong arg):
             offset_in_segment = state.count % state.segment_size
             segment_number = (state.count % state.buffer_size) / state.segment_size
             for offset in range(state.num_segments):
+                # pick the first segment ready to decode after state.count (location of disk read)
+                # would be better to pick the first segment ready after last FLINT read
                 segment = (segment_number + 1 + offset) % state.num_segments
                 if sem_trywait(& state.segments_disk[segment]) == 0:
                     if not state.eof or segment_number != segment:
                         decode_count = state.segment_size
                     else:
                         decode_count = offset_in_segment
+                    # state.status_array[state.status_index] = segment + 100
+                    # state.status_index += 1
                     pthread_mutex_unlock(& state.mutex)
                     # decode the segment
                     # with gil:
@@ -838,7 +848,11 @@ cdef void decode_from_file(void * ptr, ulong index, flint_bitcnt_t bits, ulong *
         if ((index + 1) % state.segment_size == 0):
             # with gil:
             #     print("posting segments_free", (index % state.buffer_size) / state.segment_size)
+            pthread_mutex_lock(& state.mutex)
+            # state.status_array[state.status_index] = ((index % state.buffer_size) / state.segment_size) + 200
+            # state.status_index += 1
             sem_post(& state.segments_free[(index % state.buffer_size) / state.segment_size])
+            pthread_mutex_unlock(& state.mutex)
         return
 
     while index == state.count:
@@ -893,6 +907,8 @@ cdef open_file_for_decoding(decode_from_file_struct *state, filename, num_decodi
     state.buffer = <ulong *>malloc(state.format.words * state.buffer_size * sizeof(ulong))
 
     cdef slong N = mpoly_words_per_exp(state.bits, state.ctx.minfo)
+
+    state.status_index = 0
 
     state.eof = 0
     state.segments_free = <sem_t *> malloc(state.num_segments * sizeof(sem_t))
@@ -1020,6 +1036,7 @@ cdef ulong * radii_exp_block = NULL
 cdef ulong * radii_coeff_block = NULL
 
 cdef const char * encode_to_file_returning_status(void * ptr, slong index, flint_bitcnt_t bits, ulong * exp, fmpz_t coeff, const fmpz_mpoly_ctx_t ctx) nogil:
+    cdef encode_to_file_struct * state = <encode_to_file_struct *> ptr
     encode_to_file(ptr, index, bits, exp, coeff, ctx)
     return status_string_ptr
 
@@ -1233,6 +1250,8 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
         mpoly_monomial_set(last_exp, exp, N)
     else:
         if mpoly_monomial_lt_nomask(last_exp, exp, N):
+            with gil:
+                print("mpoly_monomial_lt_nomask failed at index", index)
             raise_(SIGSEGV)
         else:
             mpoly_monomial_set(last_exp, exp, N)
@@ -1255,6 +1274,8 @@ cdef const char * verify_fcn_returning_status(void * ptr, slong index, flint_bit
     cdef ulong current_radii = (exp[15] >> 56) | (exp[16] << 8)
     if (current_radii != last_radii):
         if (last_radii != 0) and (current_radii > last_radii):
+            with gil:
+                print("current_radii > last_radii failed at index", index)
             raise_(SIGSEGV)
         last_radii = current_radii
         radii_blocks += 1
@@ -2394,13 +2415,16 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         constants = []
         k = 0
         maxdeg = 0
+        maxlen = 0
         vardeg = {var:0 for var in self.gens()}
         try:
             for t in range(len(terms)):
                 thisdeg = 0
+                thislen = 1
                 thisvardeg = {var:0 for var in self.gens()}
                 for i in n[t].elements():
                     thisdeg += polys[i].degree()
+                    thislen *= len(polys[i])
                     for var in self.gens():
                         thisvardeg[var] += polys[i].degree(var)
                     ni = polys[i]
@@ -2410,6 +2434,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                 lcm2.subtract(d[t])
                 for i in lcm2.elements():
                     thisdeg += polys[i].degree()
+                    thislen *= len(polys[i])
                     for var in self.gens():
                         thisvardeg[var] += polys[i].degree(var)
                     ni = polys[i]
@@ -2426,21 +2451,27 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
                     k += 1
                 if thisdeg > maxdeg:
                     maxdeg = thisdeg
+                maxlen += thislen
                 for var in self.gens():
                     if thisvardeg[var] > vardeg[var]:
                         vardeg[var] = thisvardeg[var]
         except Exception as ex:
+            # make sure we see an exception instead of letting it get caught
             print(ex, file=sys.stdout)
             raise
 
         if verbose: print("fmpz_mpoly_addmul_multi maxlen =", max(len(p) for p in polys), file=sys.stderr)
+        if verbose: print("fmpz_mpoly_addmul_multi maxlen result =", maxlen, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi maxdeg =", maxdeg, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi vardeg =", vardeg, file=sys.stderr)
         if verbose: print("fmpz_mpoly_addmul_multi len(terms) =", len(terms), file=sys.stderr)
 
         cdef slong len_terms = len(terms)
 
-        if verbose:
+        # XXX we use 'verbose' to figure out which polynomials we need to dump to disk
+        # XXX obviously need a better way
+        #if verbose:
+        if False:
             filename = "bigflint.out.gz"
             state.format = & self._encoding_format
             open_file_for_encoding(& state, filename)
@@ -2452,7 +2483,8 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         else:
             fmpz_mpoly_addmul_multi_threaded(p._poly, fptr, iptr, len(terms), self._ctx)
 
-        if verbose: raise Exception("fmpz_mpoly_addmul_multi")
+        #if verbose: raise Exception("fmpz_mpoly_addmul_multi")
+        if verbose: print("fmpz_mpoly_addmul_multi done len(result) =", len(p), file=sys.stderr)
         if len(lcm) == 0:
             return p
         else:
@@ -2608,6 +2640,33 @@ cdef class MPolynomial_flint(MPolynomial):
         assert (<MPolynomial_flint>left)._parent == (<MPolynomial_flint>right)._parent
 
         return rich_to_bool(op, fmpz_mpoly_cmp((<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx))
+
+    def number_of_terms(self):
+        """
+        Return the number of non-zero coefficients of this polynomial.
+
+        This is also called weight, :meth:`hamming_weight` or sparsity.
+
+        EXAMPLES::
+
+            sage: R.<x, y> = CC[]
+            sage: f = x^3 - y
+            sage: f.number_of_terms()
+            2
+            sage: R(0).number_of_terms()
+            0
+            sage: f = (x+y)^100
+            sage: f.number_of_terms()
+            101
+
+        The method :meth:`hamming_weight` is an alias::
+
+            sage: f.hamming_weight()
+            101
+        """
+        return len(self)
+
+    hamming_weight = number_of_terms
 
     cpdef _add_(left, right):
         """
@@ -2955,6 +3014,51 @@ cdef class MPolynomial_flint(MPolynomial):
         free(exp)
 
         return result
+
+    def __iter__(self):
+        """
+        Iterate over ``self`` respecting the term order.
+        """
+
+        cdef fmpz_mpoly_struct A = self._poly[0]
+
+        n = (<MPolynomialRing_flint>self._parent).ngens()
+        cdef ulong *exp = <ulong *>malloc(sizeof(ulong) * n)
+
+        result = {}
+
+        for i in range(A.length):
+            fmpz_mpoly_get_term_exp_ui(exp, self._poly, i, (<MPolynomialRing_flint>self._parent)._ctx)
+            explist = []
+            for j in range(n):
+                explist.append(Integer(exp[j]))
+            coeff = Integer(fmpz_mpoly_get_coeff_si_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx))
+            # FIXME - should return a monomial, not an ETuple
+            yield (coeff, ETuple(explist))
+
+        free(exp)
+
+    def iterator_exp_coeff(self):
+        """
+        Iterate over "self" as pairs of (ETuple, coefficient)
+        """
+
+        cdef fmpz_mpoly_struct A = self._poly[0]
+
+        n = (<MPolynomialRing_flint>self._parent).ngens()
+        cdef ulong *exp = <ulong *>malloc(sizeof(ulong) * n)
+
+        result = {}
+
+        for i in range(A.length):
+            fmpz_mpoly_get_term_exp_ui(exp, self._poly, i, (<MPolynomialRing_flint>self._parent)._ctx)
+            explist = []
+            for j in range(n):
+                explist.append(Integer(exp[j]))
+            coeff = Integer(fmpz_mpoly_get_coeff_si_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx))
+            yield (ETuple(explist), coeff)
+
+        free(exp)
 
     def exponents(self, as_ETuples=True):
         """
