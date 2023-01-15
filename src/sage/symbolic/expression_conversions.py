@@ -25,6 +25,7 @@ from sage.functions.all import exp
 from sage.symbolic.operators import arithmetic_operators, relation_operators, FDerivativeOperator, add_vararg, mul_vararg
 from sage.rings.number_field.number_field_element_quadratic import NumberFieldElement_gaussian
 from sage.rings.universal_cyclotomic_field import UniversalCyclotomicField
+from sage.rings.fraction_field import is_FractionField
 from sage.rings.fraction_field_element import is_FractionFieldElement
 from sage.rings.polynomial.multi_polynomial_element import is_MPolynomial
 from functools import reduce
@@ -1412,7 +1413,10 @@ class PolynomialConverter(Converter):
 
         if ring is not None:
             base_ring = ring.base_ring()
-            self.varnames = ring.variable_names_recursive()
+            if is_FractionField(ring):
+                self.varnames = ring.ring().variable_names_recursive()
+            else:
+                self.varnames = ring.variable_names_recursive()
             for v in ex.variables():
                 if repr(v) not in self.varnames and v not in base_ring:
                     raise TypeError("%s is not a variable of %s" %(v, ring))
@@ -1465,7 +1469,11 @@ class PolynomialConverter(Converter):
             sage: _.parent()
             Rational Field
         """
-        return self.base_ring(obj)
+        # I changed this from base_ring to ring because I was trying to convert 1/2 into
+        # a polynomial FractionField, with the polynomials over ZZ.  So it couldn't
+        # convert 1/2 into the base_ring (ZZ), but could convert it into the FractionField.
+        # return self.base_ring(obj)
+        return self.ring(obj)
 
     def composition(self, ex, operator):
         """
