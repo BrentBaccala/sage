@@ -21,3 +21,4 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
 cdef class MPolynomial_flint(MPolynomial):
     cdef fmpz_mpoly_t _poly
     cdef fmpz_mpoly_ctx_struct * _ctx
+    cpdef quo_rem(left, right)

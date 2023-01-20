@@ -2827,6 +2827,53 @@ cdef class MPolynomial_flint(MPolynomial):
 
         return (left._parent).fraction_field()(left,right_ringelement)
 
+    cpdef quo_rem(left, right):
+        """
+        Returns quotient and remainder of self and right.
+
+        EXAMPLES::
+
+            sage: R.<x,y> = QQ[]
+            sage: f = y*x^2 + x + 1
+            sage: f.quo_rem(x)
+            (x*y + 1, 1)
+            sage: f.quo_rem(y)
+            (x^2, x + 1)
+
+            sage: R.<x,y> = ZZ[]
+            sage: f = 2*y*x^2 + x + 1
+            sage: f.quo_rem(x)
+            (2*x*y + 1, 1)
+            sage: f.quo_rem(y)
+            (2*x^2, x + 1)
+            sage: f.quo_rem(3*x)
+            (0, 2*x^2*y + x + 1)
+
+        TESTS::
+
+            sage: R.<x,y> = QQ[]
+            sage: R(0).quo_rem(R(1))
+            (0, 0)
+            sage: R(1).quo_rem(R(0))
+            Traceback (most recent call last):
+            ...
+            ZeroDivisionError
+
+        """
+        if right.is_zero():
+            raise ZeroDivisionError
+
+        assert (<MPolynomial_flint>left)._parent == (<MPolynomial_flint>right)._parent
+
+        cdef MPolynomial_flint q = MPolynomial_flint.__new__(MPolynomial_flint)
+        cdef MPolynomial_flint r = MPolynomial_flint.__new__(MPolynomial_flint)
+        q._parent = (<MPolynomial_flint>left)._parent
+        r._parent = (<MPolynomial_flint>left)._parent
+
+        fmpz_mpoly_divrem(q._poly, r._poly, (<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx)
+
+        return q, r
+
     def _repr_(self):
         """
         EXAMPLES::
