@@ -3068,6 +3068,7 @@ cdef class MPolynomial_flint(MPolynomial):
         """
 
         cdef fmpz_mpoly_struct A = self._poly[0]
+        cdef MPolynomial_flint monomial
 
         n = (<MPolynomialRing_flint>self._parent).ngens()
         cdef ulong *exp = <ulong *>malloc(sizeof(ulong) * n)
@@ -3080,8 +3081,12 @@ cdef class MPolynomial_flint(MPolynomial):
             for j in range(n):
                 explist.append(Integer(exp[j]))
             coeff = Integer(fmpz_mpoly_get_coeff_si_ui(self._poly, exp, (<MPolynomialRing_flint>self._parent)._ctx))
-            # FIXME - should return a monomial, not an ETuple
-            yield (coeff, ETuple(explist))
+
+            monomial = MPolynomial_flint.__new__(MPolynomial_flint)
+            monomial._parent = self._parent
+            fmpz_mpoly_get_term_monomial(monomial._poly, self._poly, i, (<MPolynomialRing_flint>self._parent)._ctx)
+
+            yield (coeff, monomial)
 
         free(exp)
 
