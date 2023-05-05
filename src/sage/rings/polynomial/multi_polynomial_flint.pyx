@@ -2660,9 +2660,9 @@ cdef class MPolynomial_flint(MPolynomial):
             else:
                 return f
 
-        cdef fmpz_mpoly_struct A = self._poly[0]
-        cdef int l = A.length
         parent = self.parent()
+
+        cdef int l = len(x)
 
         if l == 1 and isinstance(x[0], (list, tuple)):
             x = x[0]
@@ -2671,33 +2671,30 @@ cdef class MPolynomial_flint(MPolynomial):
         if l != parent.ngens():
             raise TypeError("number of arguments does not match number of variables in parent")
 
+        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
+        p._parent = (<MPolynomial_flint>self)._parent
+        fmpz_mpoly_set(p._poly, (<MPolynomial_flint>self)._poly, (<MPolynomialRing_flint>self._parent)._ctx)
+
+        cdef fmpz_t val
+
         try:
-            # Attempt evaluation via FLINT
-            coerced_x = [parent.coerce(e) for e in x]
+            # Attempt evaluation via FLINT; can only assign integers to variables
+            for i,e in enumerate(x):
+                coerced_e = parent.coerce(e)
+                if coerced_e == parent.gen(i):
+                    pass
+                elif coerced_e.degree() == 0:
+                    fmpz_set_si(val, coerced_e)
+                    fmpz_mpoly_evaluate_one_fmpz(p._poly, p._poly, i, val, (<MPolynomialRing_flint>self._parent)._ctx)
+                else:
+                    raise TypeError
+            return p
         except TypeError:
             # give up, evaluate functional
             y = parent.base_ring().zero()
             for (m,c) in self.dict().iteritems():
-                y += c*mul([ x[i]**m[i] for i in m.nonzero_positions()])
+                y += c*prod([ x[i]**m[i] for i in m.nonzero_positions()])
             return y
-
-        #cdef poly *res    # ownership will be transferred to us in the next line
-        #singular_polynomial_call(&res, self._poly, _ring, coerced_x, MPolynomial_libsingular_get_element)
-        #n = (<MPolynomialRing_flint>self._parent).ngens()
-        cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * l)
-        for i in range(l):
-            fptr[i] =  <MPolynomial_flint>(coerced_x[i])._poly
-
-        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
-        p._parent = (<MPolynomial_flint>self)._parent
-
-        res = fmpz_mpoly_compose_fmpz_poly(p._poly, (<MPolynomial_flint>self)._poly, fptr, (<MPolynomialRing_flint>self._parent)._ctx)
-        free(<void *>fptr)
-
-        if res == 0:
-            raise RuntimeError
-
-        return p
 
     def number_of_terms(self):
         """
