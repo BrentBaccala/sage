@@ -2641,6 +2641,64 @@ cdef class MPolynomial_flint(MPolynomial):
 
         return rich_to_bool(op, fmpz_mpoly_cmp((<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx))
 
+    def __call__(self, *x, **kwds):
+        """
+        Evaluate this multi-variate polynomial at ``x``, where ``x``
+        is either the tuple of values to substitute in, or one can use
+        functional notation ``f(a_0,a_1,a_2, \ldots)`` to evaluate
+        ``f`` with the ith variable replaced by ``a_i``.
+
+        INPUT:
+
+        - ``x`` - a list of elements in ``self.parent()``
+        - or ``**kwds`` - a dictionary of ``variable-name:value`` pairs.
+        """
+        if len(kwds) > 0:
+            f = self.subs(**kwds)
+            if len(x) > 0:
+                return f(*x)
+            else:
+                return f
+
+        cdef fmpz_mpoly_struct A = self._poly[0]
+        cdef int l = A.length
+        parent = self.parent()
+
+        if l == 1 and isinstance(x[0], (list, tuple)):
+            x = x[0]
+            l = len(x)
+
+        if l != parent.ngens():
+            raise TypeError("number of arguments does not match number of variables in parent")
+
+        try:
+            # Attempt evaluation via FLINT
+            coerced_x = [parent.coerce(e) for e in x]
+        except TypeError:
+            # give up, evaluate functional
+            y = parent.base_ring().zero()
+            for (m,c) in self.dict().iteritems():
+                y += c*mul([ x[i]**m[i] for i in m.nonzero_positions()])
+            return y
+
+        #cdef poly *res    # ownership will be transferred to us in the next line
+        #singular_polynomial_call(&res, self._poly, _ring, coerced_x, MPolynomial_libsingular_get_element)
+        #n = (<MPolynomialRing_flint>self._parent).ngens()
+        cdef const fmpz_mpoly_struct ** fptr = <const fmpz_mpoly_struct **>malloc(sizeof(fmpz_mpoly_struct *) * l)
+        for i in range(l):
+            fptr[i] =  <MPolynomial_flint>(coerced_x[i])._poly
+
+        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
+        p._parent = (<MPolynomial_flint>self)._parent
+
+        res = fmpz_mpoly_compose_fmpz_poly(p._poly, (<MPolynomial_flint>self)._poly, fptr, (<MPolynomialRing_flint>self._parent)._ctx)
+        free(<void *>fptr)
+
+        if res == 0:
+            raise RuntimeError
+
+        return p
+
     def number_of_terms(self):
         """
         Return the number of non-zero coefficients of this polynomial.
