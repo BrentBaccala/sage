@@ -54,6 +54,12 @@ from sage.cpython.string cimport char_to_str, str_to_bytes
 
 from functools import reduce
 
+#from sage.interfaces.singular import is_SingularElement
+from sage.interfaces.macaulay2 import is_Macaulay2Element
+
+# XXX will produce a dependency loop if we also import this file into libsingular, for polynomial conversion the other way
+#from .multi_polynomial_libsingular import MPolynomial_libsingular
+
 # Some system include files that Cython should probably provide, but doesn't
 
 cdef extern from "<semaphore.h>" nogil:
@@ -2028,6 +2034,7 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         """
 
         cdef MPolynomial_flint p
+        cdef ulong * exps
 
         base_ring = self.base_ring()
 
@@ -2196,34 +2203,34 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
             # element in self.
             return self._coerce_c(element)
 
-#        if isinstance(element, dict):
-#            if len(element)==0:
-#                _p = p_ISet(0, _ring)
-#            else:
-#                bucket = sBucketCreate(_ring)
-#                try:
-#                    for (m,c) in element.iteritems():
-#                        if check:
-#                            c = base_ring(c)
-#                        if not c:
-#                            continue
-#                        mon = p_Init(_ring)
-#                        p_SetCoeff(mon, sa2si(c , _ring), _ring)
-#                        if len(m) != self.ngens():
-#                            raise TypeError("tuple key must have same length as ngens")
-#                        for pos from 0 <= pos < len(m):
-#                            if m[pos]:
-#                                overflow_check(m[pos], _ring)
-#                                p_SetExp(mon, pos+1, m[pos], _ring)
-#                        p_Setm(mon, _ring)
-#                        sBucket_Merge_m(bucket, mon)
-#                    e=0
-#                    sBucketClearMerge(bucket, &_p, &e)
-#                    sBucketDestroy(&bucket)
-#                except TypeError:
-#                    sBucketDeleteAndDestroy(&bucket)
-#                    raise
-#            return new_MP(self, _p)
+        if isinstance(element, dict):
+            p = MPolynomial_flint.__new__(MPolynomial_flint)
+            fmpz_mpoly_init(p._poly, self._ctx)
+            p._parent = self
+
+            if len(element)==0:
+                # return zero polynomial, which is the result of an fmpz_mpoly_init
+                pass
+            else:
+                exps = <ulong *> malloc(sizeof(ulong) * self.ngens())
+                try:
+                    for (m,c) in element.iteritems():
+                        if check:
+                            c = base_ring(c)
+                        if not c:
+                            continue
+                        if len(m) != self.ngens():
+                            raise TypeError("tuple key must have same length as ngens")
+                        for pos from 0 <= pos < len(m):
+                            # Singular does an overflow_check here
+                            exps[pos] = m[pos]
+                        # Might have an overflow here, too
+                        fmpz_mpoly_set_coeff_si_ui(p._poly, c, exps, self._ctx)
+                except TypeError:
+                    free(exps)
+                    raise
+                free(exps)
+            return p
 
         try: #if hasattr(element,'_polynomial_'):
             # SymbolicVariable
@@ -2231,8 +2238,16 @@ cdef class MPolynomialRing_flint(MPolynomialRing_base):
         except AttributeError:
             pass
 
-#        if is_Macaulay2Element(element):
-#            return self(element.external_string())
+        if is_Macaulay2Element(element):
+            return self(element.external_string())
+
+        # This code is problematic - what if the two rings have different sets of variables?
+        #if is_SingularElement(element):
+        #    return self(element.dict())
+        #if isinstance(element, MPolynomial_libsingular):
+        #    return self(element.dict())
+
+# I don't want this in the code for testing purposes, to make sure the above stuff works and doesn't fall through into this
 #        try:
 #            return self(str(element))
 #        except TypeError:
