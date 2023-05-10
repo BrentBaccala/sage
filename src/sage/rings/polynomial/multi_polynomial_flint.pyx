@@ -2582,7 +2582,6 @@ cdef class MPolynomial_flint(MPolynomial):
 
     def __cinit__(self):
         fmpz_mpoly_init(self._poly, NULL)
-        self._cached_FLINT_evaluates = dict()
 
     def __init__(self, MPolynomialRing_flint parent):
         """
@@ -2659,6 +2658,25 @@ cdef class MPolynomial_flint(MPolynomial):
 
         return rich_to_bool(op, fmpz_mpoly_cmp((<MPolynomial_flint>left)._poly, (<MPolynomial_flint>right)._poly, (<MPolynomialRing_flint>left._parent)._ctx))
 
+    def __evaluate(self, FLINT_evaluates):
+        """
+        argument is a sequence of i,val pairs.  Each variable of index "i"
+        is set to the constant "val"; other variables are left unchanged.
+
+        Performs evaluation via FLINT; can only assign integers to variables.
+        """
+        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
+        p._parent = (<MPolynomial_flint>self)._parent
+        fmpz_mpoly_set(p._poly, (<MPolynomial_flint>self)._poly, (<MPolynomialRing_flint>self._parent)._ctx)
+
+        cdef fmpz_t val
+
+        for i,e in FLINT_evaluates:
+            fmpz_set_si(val, e)
+            fmpz_mpoly_evaluate_one_fmpz(p._poly, p._poly, i, val, (<MPolynomialRing_flint>self._parent)._ctx)
+
+        return p
+
     def __call__(self, *x, **kwds):
         """
         Evaluate this multi-variate polynomial at ``x``, where ``x``
@@ -2689,49 +2707,28 @@ cdef class MPolynomial_flint(MPolynomial):
         if l != parent.ngens():
             raise TypeError("number of arguments does not match number of variables in parent")
 
-        # WARNING: this code currently hashes all hashable input to this function
-        # This works well if the function is being repeated called with the same input
-        # If it's repeated called with different inputs, it will fill up the hashing dictionary
+        # Construct FLINT_evaluates, which is a list of variable numbers and the constants to set them to
+        FLINT_evaluates = []
+        try:
+            for i,e in enumerate(x):
+                coerced_e = parent.coerce(e)
+                if coerced_e == parent.gen(i):
+                    pass
+                elif coerced_e.degree() == 0:
+                    FLINT_evaluates.append((i, coerced_e))
+                else:
+                    raise TypeError
+        except TypeError:
+            FLINT_evaluates = None
 
-        if isinstance(x, typing.Hashable) and x in self._cached_FLINT_evaluates:
-            FLINT_evaluates = self._cached_FLINT_evaluates[x]
+        if FLINT_evaluates:
+            return self.__evaluate(FLINT_evaluates)
         else:
-            # Construct FLINT_evaluates, which is a list of variable numbers and the constants to set them to
-            FLINT_evaluates = []
-            try:
-                for i,e in enumerate(x):
-                    coerced_e = parent.coerce(e)
-                    if coerced_e == parent.gen(i):
-                        pass
-                    elif coerced_e.degree() == 0:
-                        FLINT_evaluates.append((i, coerced_e))
-                    else:
-                        raise TypeError
-            except TypeError:
-                FLINT_evaluates = None
-            if isinstance(x, typing.Hashable):
-                self._cached_FLINT_evaluates[x] = FLINT_evaluates
-
-        if not FLINT_evaluates:
             # give up, evaluate functional
             y = parent.base_ring().zero()
             for (m,c) in self.dict().iteritems():
                 y += c*prod([ x[i]**m[i] for i in m.nonzero_positions()])
             return y
-
-        # Perform evaluation via FLINT; can only assign integers to variables
-
-        cdef MPolynomial_flint p = MPolynomial_flint.__new__(MPolynomial_flint)
-        p._parent = (<MPolynomial_flint>self)._parent
-        fmpz_mpoly_set(p._poly, (<MPolynomial_flint>self)._poly, (<MPolynomialRing_flint>self._parent)._ctx)
-
-        cdef fmpz_t val
-
-        for i,e in FLINT_evaluates:
-            fmpz_set_si(val, e)
-            fmpz_mpoly_evaluate_one_fmpz(p._poly, p._poly, i, val, (<MPolynomialRing_flint>self._parent)._ctx)
-
-        return p
 
     def number_of_terms(self):
         """

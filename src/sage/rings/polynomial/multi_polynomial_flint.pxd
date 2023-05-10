@@ -22,4 +22,3 @@ cdef class MPolynomial_flint(MPolynomial):
     cdef fmpz_mpoly_t _poly
     cdef fmpz_mpoly_ctx_struct * _ctx
     cpdef quo_rem(left, right)
-    cdef dict _cached_FLINT_evaluates
