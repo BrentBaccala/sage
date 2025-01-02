@@ -613,6 +613,10 @@ cdef extern from "singular/Singular/libsingular.h":
 
     poly *pp_Mult_nn(poly *p, number *n, ring *r)
 
+    # return p/n, p is destroyed
+
+    poly *p_Div_nn(poly *p, number *n, ring *r)
+
     # return p*m, does neither destroy p nor m
 
     poly *pp_Mult_mm(poly *p, poly *m, ring *r)

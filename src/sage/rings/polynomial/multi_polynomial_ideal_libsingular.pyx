@@ -58,6 +58,11 @@ from sage.libs.singular.decl cimport pp_Mult_nn, p_Delete, n_Delete
 from sage.libs.singular.decl cimport rIsPluralRing
 from sage.libs.singular.decl cimport n_Z, n_Zn, n_Znm, n_Z2m
 
+from sage.libs.singular.decl cimport p_GetExp, p_SetExp, p_Setm, p_Copy, p_Head, p_Neg, p_Add_q, p_Div_nn, p_ISet
+from sage.libs.singular.decl cimport idInit, id_Delete, fast_map_common_subexp
+from sage.libs.singular.polynomial cimport singular_polynomial_subst
+from libc.stdlib cimport malloc, free
+
 from sage.rings.polynomial.multi_polynomial_libsingular cimport new_MP
 from sage.rings.polynomial.plural cimport new_NCP
 
@@ -338,3 +343,255 @@ def interred_libsingular(I):
 
     id_Delete(&result, r)
     return res
+
+def simplifyIdeal_libsingular(gens):
+    """
+    An optimized version of SINGULAR's ``simplifyIdeal`` algorithm.
+
+    INPUT:
+
+    - ``gens`` -- a list of the generators of an ideal
+
+    OUTPUT:
+
+    A tuple consisting of a simplified list of generators and a tuple
+    of simplifications (polynomials).
+
+    The simplifications are all polynomials with a term that is a single
+    variable that doesn't appear elsewhere in the polynomial, and therefore
+    allows the remaining terms to be substituted for that variable throughout
+    the all of the generators.
+
+    EXAMPLES::
+
+        sage: from sage.rings.polynomial.multi_polynomial_ideal_libsingular import simplifyIdeal_libsingular
+        sage: R.<x,y,z> = QQ[]
+        sage: simplifyIdeal_libsingular([x+x^2])
+        ([x^2 + x], ())
+        sage: simplifyIdeal_libsingular([x+z])
+        ([0], (x + z,))
+        sage: simplifyIdeal_libsingular([x+x^2, x])
+        ([0, 0], (x,))
+        sage: simplifyIdeal_libsingular([x+x^2, x+y])
+        ([y^2 - y, 0], (x + y,))
+        sage: simplifyIdeal_libsingular([x+x^2, 2*x+y])
+        ([1/4*y^2 - 1/2*y, 0], (2*x + y,))
+        sage: simplifyIdeal_libsingular([x+x^2+y, x])
+        ([0, 0], (x, y))
+        sage: simplifyIdeal_libsingular([x+x^2+y^2, x])
+        ([y^2, 0], (x,))
+        sage: simplifyIdeal_libsingular([x+x^2+y^2+z, x])
+        ([0, 0], (x, y^2 + z))
+        sage: simplifyIdeal_libsingular([x+x^2+y^2+z, x,z])
+        ([y^2, 0, 0], (x, z))
+        sage: simplifyIdeal_libsingular([x+x^2+y^2+z, x,z+y])
+        ([z^2 + z, 0, 0], (x, y + z))
+        sage: simplifyIdeal_libsingular([x+1,x^2,y,x,y^2,x+y,z^2])
+        ([1, 0, 0, 0, 0, 0, z^2], (y, x))
+        sage: simplifyIdeal_libsingular([x^2, x-y-z])
+        ([y^2 + 2*y*z + z^2, 0], (x - y - z,))
+    """
+    cdef ring *r
+    cdef int j
+    cdef int jj1, jj2
+    cdef poly *p
+    cdef poly *sp
+    cdef unsigned long e
+    cdef unsigned long e1, e2
+
+    cdef int *kk
+    cdef poly **ct
+    cdef number *coeff
+    cdef poly *v
+    cdef int subst_var
+
+    cdef ideal *to_id
+    cdef ideal *from_id
+
+    simplifications = list()
+
+    if len(gens) == 0:
+        return (gens, tuple(simplifications))
+
+    for f in gens:
+        if not isinstance(f, MPolynomial_libsingular):
+            raise TypeError("All generators must be of type MPolynomial_libsingular.")
+
+    R = gens[0].parent()
+    if isinstance(R, MPolynomialRing_libsingular):
+        r = (<MPolynomialRing_libsingular>R)._ring
+    else:
+        raise TypeError("Ring must be of type 'MPolynomialRing_libsingular'")
+
+    rChangeCurrRing(r)
+
+    kk = <int *>malloc(r.N * sizeof(int))
+    ct = <poly **>malloc(r.N * sizeof(poly *))
+
+    while True:
+        for f in gens:
+            p = (<MPolynomial_libsingular>f)._poly
+            # check first for polynomials that are monomials (p.next is NULL)
+            # zero polynomials have p = NULL, so we have to check that first
+            if p and p.next == NULL:
+                # see if the monomial is just a single variable (subst_var)
+                subst_var = -1
+                for j in range(r.N):
+                    e = p_GetExp(p, j+1, r)
+                    if e == 1 and subst_var == -1:
+                        subst_var = j
+                    elif e > 0:
+                        break
+                else:
+                    if subst_var != -1:
+                        simplifications.append(f)
+                        for j,f in enumerate(gens):
+                            p = (<MPolynomial_libsingular>f)._poly
+                            if p:
+                                p = p_Copy(p, r)
+                                singular_polynomial_subst(&p, subst_var, (<MPolynomial_libsingular>(R._zero_element))._poly, r)
+                                gens[j] = new_MP(R, p)
+                        # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
+                        break
+        else:
+            # we didn't find any monomial simplifications, so look for binomial simplifications
+            for f in gens:
+                p = (<MPolynomial_libsingular>f)._poly
+                # check polynomials that are binomials
+                if p and p.next and p.next.next == NULL:
+                    # jj1 is for the first term in the binomial; jj2 is for the second term
+                    #     -1  means we've seen all zeros so far in the exponent
+                    #      0+ means we've seen exactly one non-zero in the exponent (and record its index)
+                    #     -2  means we've seen two non-zeros in the exponent, so we can't use this term
+                    jj1 = -1
+                    jj2 = -1
+                    for j in range(r.N):
+                        e1 = p_GetExp(p, j+1, r)
+                        e2 = p_GetExp(p.next, j+1, r)
+                        if e1 == 1 and e2 == 0 and jj1 == -1:
+                            jj1 = j
+                        elif e1 > 0:
+                            jj1 = -2
+                        if e2 == 0 and e2 == 1 and jj2 == -1:
+                            jj2 = j
+                        elif e2 > 0:
+                            jj2 = -2
+                        if jj1 == -2 and jj2 == -2:
+                            break
+                    else:
+                        sp = NULL
+                        if jj1 >= 0:
+                            subst_var = jj1
+                            sp = p_Copy(p.next, r)
+                            coeff = p_GetCoeff(p, r)
+                        elif jj2 >= 0:
+                            subst_var = jj2
+                            sp = p_Head(p, r)
+                            coeff = p_GetCoeff(p.next, r)
+                        if sp:
+                            sp = p_Div_nn(sp, coeff, r)
+                            sp = p_Neg(sp, r)
+                            simplifications.append(f)
+                            for j,f in enumerate(gens):
+                                p = (<MPolynomial_libsingular>f)._poly
+                                if p:
+                                    p = p_Copy(p, r)
+                                    singular_polynomial_subst(&p, subst_var, sp, r)
+                                    gens[j] = new_MP(R, p)
+                            p_Delete(&sp, r)
+                            # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
+                            break
+            else:
+                # we didn't find any monomial or binomial simplifications, so look for more complex simplifications
+                #
+                # We're now going to make a single sweep over every term in every polynomial.  I think
+                # in most cases, this will produce nothing and we'll return from the function.
+                for f in gens:
+                    p = (<MPolynomial_libsingular>f)._poly
+                    for j in range(r.N):
+                        kk[j] = 0
+                    while p:
+                        # kk[nvars]: counts the number of times we've seen a variable as a single term
+                        #            0 means we haven't seen this variable yet at all
+                        #            1 means we've seen it once in a single term that could be valid
+                        #            2 means we've seen it more than once in this polynomial, so its invalid
+                        # sp[nvars]: a pointer to the candidate term for this variable
+                        # once all the of kk are 2, we can abandon this polynomial (but we don't check this; I think it's uncommon)
+
+                        # first question: is this term a single variable?
+                        subst_var = -1
+                        for j in range(r.N):
+                            e = p_GetExp(p, j+1, r)
+                            if e == 1 and subst_var == -1:
+                                subst_var = j
+                            elif (e > 0 and subst_var != -1) or (e > 1):
+                                # either we've seen two variables now, or a variable appears at a higher power
+                                # either way, this term isn't a single variable
+                                subst_var = -1
+                                break
+                        # based on the answer to the first question...
+                        if subst_var != -1:
+                            # this term is just variable subst_var and is therefore a candidate
+                            kk[subst_var] += 1
+                            ct[subst_var] = p
+                        else:
+                            # this term isn't a single variable; remove all of its variables from contention
+                            for j in range(r.N):
+                                e = p_GetExp(p, j+1, r)
+                                if e > 0:
+                                    kk[j] = 2
+                        p = p.next
+                    # end of poly
+                    # are any of the variables marked valid?
+                    for subst_var in range(r.N):
+                        if kk[subst_var] == 1:
+                            simplifications.append(f)
+                            # ct[subst_var] points to a term in the polynomial that is just a constant times the subst_var'th variable
+                            coeff = p_GetCoeff(ct[subst_var], r)
+                            p = (<MPolynomial_libsingular>f)._poly
+                            sp = p_Copy(p, r)
+                            sp = p_Div_nn(sp, coeff, r)
+                            sp = p_Neg(sp, r)
+                            # v is just the variable itself
+                            v = p_ISet(1, r)
+                            p_SetExp(v, subst_var+1, 1, r)
+                            p_Setm(v, r)
+                            # both the original sp and v are destroyed by p_Add_q
+                            sp = p_Add_q(sp, v, r)
+
+                            to_id = idInit(r.N, 1)
+                            for mi in range(r.N):
+                                if mi == subst_var:
+                                    to_id.m[mi] = sp
+                                else:
+                                    to_id.m[mi] = p_ISet(1,r)
+                                    p_SetExp(to_id.m[mi], mi + 1, 1, r)
+                                    p_Setm(to_id.m[mi], r)
+
+                            from_id = idInit(1, 1)
+
+                            for j,f in enumerate(gens):
+                                p = (<MPolynomial_libsingular>f)._poly
+                                if p:
+                                    # singular_polynomial_subst calls pSubst, which only works for monomials
+                                    # singular_polynomial_subst(&p, subst_var, sp, r)
+                                    from_id.m[0] = p
+                                    res_id = fast_map_common_subexp(from_id, r, to_id, r)
+                                    gens[j] = new_MP(R, res_id.m[0])
+
+                            # id_Delete also deletes all of the polynomials in the ideal, so deleting
+                            # to_id deletes sp.   We set from_id.m[0] to NULL since p got deleted
+                            # when the old polynomial in gens[j] was replaced, and we set res_id.m[0] to NULL
+                            # since we don't want the new polynomial in gens[j] deleted at all.
+                            from_id.m[0] = NULL
+                            res_id.m[0] = NULL
+                            id_Delete(&from_id, r)
+                            id_Delete(&to_id, r)
+                            id_Delete(&res_id, r)
+                            # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
+                            break
+            # we didn't find any simplifications at all, so break out of the main while loop and return
+            break
+    free(kk)
+    free(ct)
+    return (gens, tuple(simplifications))
