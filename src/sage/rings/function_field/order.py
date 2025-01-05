@@ -914,8 +914,8 @@ class FunctionFieldMaximalOrder_rational(FunctionFieldMaximalOrder):
         """
         F = self.function_field()
 
-        if not F.is_global():
-            raise NotImplementedError
+        #if not F.is_global():
+        #    raise NotImplementedError
 
         q = ideal.gen().element().numerator()
         R, _from_R, _to_R = self._residue_field_global(q, name=name)
@@ -984,6 +984,15 @@ class FunctionFieldMaximalOrder_rational(FunctionFieldMaximalOrder):
         """
         # polynomial ring over the base field
         R = self._ring
+
+        # this special case takes care of fields over QQbar
+        if q.degree() == 1:
+            K = R.base_ring()
+            def to_K(f):
+                return K(f % q)
+            def fr_K(g):
+                return R(g)
+            return K, fr_K, to_K
 
         # base field of extension degree r over the prime field
         k = R.base_ring()
@@ -1665,8 +1674,8 @@ class FunctionFieldMaximalOrder_polymod(FunctionFieldMaximalOrder):
                 I._ramification_index = 1
                 I._beta = [1] + [0]*(n-1)
             else:
-                # I'd like qq = q.basis_matrix().change_ring(K.constant_field()),
-                # but that produces exceptions like "TypeError: unable to convert 1 to a rational"
+                # I'd like qq = q.basis_matrix().lift()
+                # but that produces exceptions like "TypeError: unable to convert 0 to a rational"
                 qqq = matrix([[e.lift() for e in r] for r in q.basis_matrix()])
                 I = self.ideal(*((prime,) + tuple((matrix(self.basis()) * qqq.transpose())[0])))
 
