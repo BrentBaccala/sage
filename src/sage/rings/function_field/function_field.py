@@ -3347,6 +3347,7 @@ class FunctionField_integral(FunctionField_polymod):
     Integral function fields defined by an irreducible and separable polynomial,
     which is integral over the maximal order of the base rational function field.
     """
+
     def _maximal_order_basis(self):
         """
         Return a basis of the maximal order of the function field.

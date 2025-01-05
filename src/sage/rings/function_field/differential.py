@@ -351,6 +351,54 @@ class FunctionFieldDifferential_global(FunctionFieldDifferential):
         x = F.base_field().gen()
         return self._f.divisor() + (-2)*F(x).divisor_of_poles() + F.different()
 
+    def divisor_of_zeros(self):
+        """
+        Return the divisor of zeros of the differential.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(GF(5)); _.<Y>=K[]
+            sage: L.<y> = K.extension(Y^3+x+x^3*Y)
+            sage: w = (1/y) * y.differential()
+            sage: w.divisor_of_zeros()
+            Place (x + 2, y + 3)
+             + Place (x^6 + 3*x^5 + 4*x^4 + 2*x^3 + x^2 + 3*x + 4, y + x^5)
+
+            sage: F.<x> = FunctionField(QQ)
+            sage: w = (x^2).differential()
+            sage: w.divisor_of_zeros()
+            Place (x)
+            sage: w = (1/x^2).differential()
+            sage: w.divisor_of_zeros()
+            Place (1/x)
+        """
+        from .divisor import divisor
+        data = {prime: multiplicity for prime, multiplicity in self.divisor().list() if multiplicity > 0}
+        return divisor(self.parent().function_field(), data)
+
+    def divisor_of_poles(self):
+        """
+        Return the divisor of poles of the differential.
+
+        EXAMPLES::
+
+            sage: K.<x> = FunctionField(GF(5)); _.<Y>=K[]
+            sage: L.<y> = K.extension(Y^3+x+x^3*Y)
+            sage: w = (1/y) * y.differential()
+            sage: w.divisor_of_poles()
+            Place (1/x, 1/x^3*y^2 + 1/x)
+             + Place (1/x, 1/x^3*y^2 + 1/x^2*y + 1)
+             + Place (x, y)
+
+            sage: F.<x> = FunctionField(QQ)
+            sage: w = (1/x).differential()
+            sage: w.divisor_of_poles()
+            2*Place (x)
+        """
+        from .divisor import divisor
+        data = {prime: - multiplicity for prime, multiplicity in self.divisor().list() if multiplicity < 0}
+        return divisor(self.parent().function_field(), data)
+
     def valuation(self, place):
         """
         Return the valuation of the differential at the ``place``.
