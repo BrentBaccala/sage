@@ -385,11 +385,13 @@ def simplifyIdeal_libsingular(gens):
         sage: simplifyIdeal_libsingular([x+x^2+y^2+z, x,z])
         ([y^2, 0, 0], (x, z))
         sage: simplifyIdeal_libsingular([x+x^2+y^2+z, x,z+y])
-        ([z^2 + z, 0, 0], (x, y + z))
+        ([0, 0, -y^2 + y], (x, y^2 + z))
         sage: simplifyIdeal_libsingular([x+1,x^2,y,x,y^2,x+y,z^2])
         ([1, 0, 0, 0, 0, 0, z^2], (y, x))
         sage: simplifyIdeal_libsingular([x^2, x-y-z])
         ([y^2 + 2*y*z + z^2, 0], (x - y - z,))
+        sage: simplifyIdeal_libsingular([z^2, x^2*y-z])
+        ([x^4*y^2, 0], (x^2*y - z,))
     """
     cdef ring *r
     cdef int j
@@ -472,7 +474,7 @@ def simplifyIdeal_libsingular(gens):
                             jj1 = j
                         elif e1 > 0:
                             jj1 = -2
-                        if e2 == 0 and e2 == 1 and jj2 == -1:
+                        if e1 == 0 and e2 == 1 and jj2 == -1:
                             jj2 = j
                         elif e2 > 0:
                             jj2 = -2
