@@ -394,6 +394,7 @@ def simplifyIdeal_libsingular(gens):
         ([x^4*y^2, 0], (x^2*y - z,))
     """
     cdef ring *r
+    cdef int i
     cdef int j
     cdef int jj1, jj2
     cdef poly *p
@@ -401,6 +402,9 @@ def simplifyIdeal_libsingular(gens):
     cdef unsigned long e
     cdef unsigned long e1, e2
 
+    cdef int ngens
+    cdef poly **pgens
+    cdef int substitution_made = 0
     cdef int *kk
     cdef poly **ct
     cdef number *coeff
@@ -430,9 +434,15 @@ def simplifyIdeal_libsingular(gens):
     kk = <int *>malloc(r.N * sizeof(int))
     ct = <poly **>malloc(r.N * sizeof(poly *))
 
+    ngens = len(gens)
+    pgens = <poly **>malloc(ngens * sizeof(poly *))
+
+    for i,f in enumerate(gens):
+        pgens[i] = (<MPolynomial_libsingular>f)._poly
+
     while True:
-        for f in gens:
-            p = (<MPolynomial_libsingular>f)._poly
+        for i in range(ngens):
+            p = pgens[i]
             # check first for polynomials that are monomials (p.next is NULL)
             # zero polynomials have p = NULL, so we have to check that first
             if p and p.next == NULL:
@@ -446,19 +456,25 @@ def simplifyIdeal_libsingular(gens):
                         break
                 else:
                     if subst_var != -1:
-                        simplifications.append(f)
-                        for j,f in enumerate(gens):
-                            p = (<MPolynomial_libsingular>f)._poly
+                        simplifications.append(new_MP(R, p))
+                        for j in range(ngens):
+                            p = pgens[j]
                             if p:
                                 p = p_Copy(p, r)
                                 singular_polynomial_subst(&p, subst_var, (<MPolynomial_libsingular>(R._zero_element))._poly, r)
-                                gens[j] = new_MP(R, p)
+                                # If we're already made a substitution, then the polynomials in pgens[] are intermediates
+                                # that should be deleted.  Otherwise, they are the original polynomials that will be
+                                # deleted by Python when we destroy the Python polynomials in gens.
+                                if substitution_made:
+                                    p_Delete(&pgens[j], r)
+                                pgens[j] = p
+                        substitution_made = 1
                         # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
                         break
         else:
             # we didn't find any monomial simplifications, so look for binomial simplifications
-            for f in gens:
-                p = (<MPolynomial_libsingular>f)._poly
+            for i in range(ngens):
+                p = pgens[i]
                 # check polynomials that are binomials
                 if p and p.next and p.next.next == NULL:
                     # jj1 is for the first term in the binomial; jj2 is for the second term
@@ -493,13 +509,16 @@ def simplifyIdeal_libsingular(gens):
                         if sp:
                             sp = p_Div_nn(sp, coeff, r)
                             sp = p_Neg(sp, r)
-                            simplifications.append(f)
-                            for j,f in enumerate(gens):
-                                p = (<MPolynomial_libsingular>f)._poly
+                            simplifications.append(new_MP(R, p))
+                            for j in range(ngens):
+                                p = pgens[j]
                                 if p:
                                     p = p_Copy(p, r)
                                     singular_polynomial_subst(&p, subst_var, sp, r)
-                                    gens[j] = new_MP(R, p)
+                                    if substitution_made:
+                                        p_Delete(&pgens[j], r)
+                                    pgens[j] = p
+                            substitution_made = 1
                             p_Delete(&sp, r)
                             # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
                             break
@@ -508,8 +527,8 @@ def simplifyIdeal_libsingular(gens):
                 #
                 # We're now going to make a single sweep over every term in every polynomial.  I think
                 # in most cases, this will produce nothing and we'll return from the function.
-                for f in gens:
-                    p = (<MPolynomial_libsingular>f)._poly
+                for i in range(ngens):
+                    p = pgens[i]
                     for j in range(r.N):
                         kk[j] = 0
                     while p:
@@ -547,10 +566,9 @@ def simplifyIdeal_libsingular(gens):
                     # are any of the variables marked valid?
                     for subst_var in range(r.N):
                         if kk[subst_var] == 1:
-                            simplifications.append(f)
+                            simplifications.append(new_MP(R, p))
                             # ct[subst_var] points to a term in the polynomial that is just a constant times the subst_var'th variable
                             coeff = p_GetCoeff(ct[subst_var], r)
-                            p = (<MPolynomial_libsingular>f)._poly
                             sp = p_Copy(p, r)
                             sp = p_Div_nn(sp, coeff, r)
                             sp = p_Neg(sp, r)
@@ -572,28 +590,36 @@ def simplifyIdeal_libsingular(gens):
 
                             from_id = idInit(1, 1)
 
-                            for j,f in enumerate(gens):
-                                p = (<MPolynomial_libsingular>f)._poly
+                            for j in range(ngens):
+                                p = pgens[j]
                                 if p:
                                     # singular_polynomial_subst calls pSubst, which only works for monomials
                                     # singular_polynomial_subst(&p, subst_var, sp, r)
                                     from_id.m[0] = p
                                     res_id = fast_map_common_subexp(from_id, r, to_id, r)
-                                    gens[j] = new_MP(R, res_id.m[0])
+                                    pgens[j] = res_id.m[0]
 
                             # id_Delete also deletes all of the polynomials in the ideal, so deleting
-                            # to_id deletes sp.   We set from_id.m[0] to NULL since p got deleted
-                            # when the old polynomial in gens[j] was replaced, and we set res_id.m[0] to NULL
-                            # since we don't want the new polynomial in gens[j] deleted at all.
-                            from_id.m[0] = NULL
+                            # to_id deletes sp.   We set from_id.m[0] to NULL if we don't want the original
+                            # pgens[i] deleted (same substitution_made logic as above), and we set res_id.m[0] to NULL
+                            # since we don't want the new polynomial in pgens[j] deleted at all.
+                            if not substitution_made:
+                                from_id.m[0] = NULL
                             res_id.m[0] = NULL
                             id_Delete(&from_id, r)
                             id_Delete(&to_id, r)
                             id_Delete(&res_id, r)
+                            substitution_made = 1
                             # we found a simplification, so break out of the current "for f in gens" and run the main while loop again
                             break
             # we didn't find any simplifications at all, so break out of the main while loop and return
             break
+
+    if substitution_made:
+        for i in range(ngens):
+            gens[i] = new_MP(R, pgens[i])
+
     free(kk)
     free(ct)
+    free(pgens)
     return (gens, tuple(simplifications))
