@@ -50,8 +50,6 @@ Two examples from the Mathematica documentation (done in Sage):
 
 from cysignals.signals cimport sig_on, sig_off
 
-from cython.parallel import prange
-
 from sage.libs.singular.decl cimport tHomog, number, IDELEMS, p_Copy, rChangeCurrRing
 from sage.libs.singular.decl cimport idInit, id_Delete, currRing, Sy_bit, OPT_REDSB
 from sage.libs.singular.decl cimport scKBase, poly, testHomog, idSkipZeroes, id_RankFreeModule, kStd
@@ -459,7 +457,7 @@ def simplifyIdeal_libsingular(gens):
                 else:
                     if subst_var != -1:
                         simplifications.append(new_MP(R, p))
-                        for j in prange(ngens, nogil=True):
+                        for j in range(ngens):
                             p = pgens[j]
                             if p:
                                 p = p_Copy(p, r)
@@ -512,7 +510,7 @@ def simplifyIdeal_libsingular(gens):
                             sp = p_Div_nn(sp, coeff, r)
                             sp = p_Neg(sp, r)
                             simplifications.append(new_MP(R, p))
-                            for j in prange(ngens, nogil=True):
+                            for j in range(ngens):
                                 p = pgens[j]
                                 if p:
                                     p = p_Copy(p, r)
@@ -592,7 +590,7 @@ def simplifyIdeal_libsingular(gens):
 
                             from_id = idInit(1, 1)
 
-                            for j in prange(ngens, nogil=True):
+                            for j in range(ngens):
                                 p = pgens[j]
                                 if p:
                                     # singular_polynomial_subst calls pSubst, which only works for monomials
