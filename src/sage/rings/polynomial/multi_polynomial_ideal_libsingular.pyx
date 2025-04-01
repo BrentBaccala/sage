@@ -50,7 +50,7 @@ Two examples from the Mathematica documentation (done in Sage):
 
 from cysignals.signals cimport sig_on, sig_off
 
-import cython
+cimport cython
 
 from sage.libs.singular.decl cimport tHomog, number, IDELEMS, p_Copy, rChangeCurrRing
 from sage.libs.singular.decl cimport idInit, id_Delete, currRing, Sy_bit, OPT_REDSB
