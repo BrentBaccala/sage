@@ -566,6 +566,7 @@ def simplifyIdeal_libsingular(gens):
                     # are any of the variables marked valid?
                     for subst_var in range(r.N):
                         if kk[subst_var] == 1:
+                            p = pgens[i]
                             simplifications.append(new_MP(R, p_Copy(p, r)))
                             # ct[subst_var] points to a term in the polynomial that is just a constant times the subst_var'th variable
                             coeff = p_GetCoeff(ct[subst_var], r)
