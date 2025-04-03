@@ -456,7 +456,7 @@ def simplifyIdeal_libsingular(gens):
                         break
                 else:
                     if subst_var != -1:
-                        simplifications.append(new_MP(R, p))
+                        simplifications.append(new_MP(R, p_Copy(p, r)))
                         for j in range(ngens):
                             p = pgens[j]
                             if p:
@@ -509,7 +509,7 @@ def simplifyIdeal_libsingular(gens):
                         if sp:
                             sp = p_Div_nn(sp, coeff, r)
                             sp = p_Neg(sp, r)
-                            simplifications.append(new_MP(R, p))
+                            simplifications.append(new_MP(R, p_Copy(p, r)))
                             for j in range(ngens):
                                 p = pgens[j]
                                 if p:
@@ -566,7 +566,7 @@ def simplifyIdeal_libsingular(gens):
                     # are any of the variables marked valid?
                     for subst_var in range(r.N):
                         if kk[subst_var] == 1:
-                            simplifications.append(new_MP(R, p))
+                            simplifications.append(new_MP(R, p_Copy(p, r)))
                             # ct[subst_var] points to a term in the polynomial that is just a constant times the subst_var'th variable
                             coeff = p_GetCoeff(ct[subst_var], r)
                             sp = p_Copy(p, r)
@@ -617,7 +617,7 @@ def simplifyIdeal_libsingular(gens):
 
     if substitution_made:
         for i in range(ngens):
-            gens[i] = new_MP(R, pgens[i])
+            gens[i] = new_MP(R, p_Copy(pgens[i], r))
 
     free(kk)
     free(ct)
