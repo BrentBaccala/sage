@@ -5999,31 +5999,45 @@ def poly_to_bytestring(p, MPolynomialRing_libsingular R):
 
     TESTS::
 
+    We only support finite fields at this time; all others should throw an exception.
+
         sage: from sage.rings.polynomial.multi_polynomial_libsingular import poly_to_bytestring
         sage: R.<x,y,z> = PolynomialRing(QQ, 3, order='degrevlex')
         sage: f = 27/113 * x^2 + y*z + 1/2
         sage: poly_to_bytestring(f, R)
         Traceback (most recent call last):
         ...
-        RuntimeError: can't convert polynomial coefficient to long
-        sage: f = 27/2 * x^2 + y*z + 2
-        sage: poly_to_bytestring(f, R)
+        RuntimeError: unsupported base field
+
+    Finite fields larger than 2^31-1 aren't supported.
+
+        sage: F31.<x,y,z> = PolynomialRing(GF(2^31+11), 3, order='degrevlex')
+        sage: f =  - x^2 + (2^30) * y*z + 1
+        sage: poly_to_bytestring(f, F31)
         Traceback (most recent call last):
         ...
-        RuntimeError: can't convert polynomial coefficient to long
+        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
+
+        sage: F32.<x,y,z> = PolynomialRing(GF(2^32-5), 3, order='degrevlex')
+        sage: f =  (2^32-6) * x^2 + 2 * y*z + 1
+        sage: f == poly_to_bytestring(f, F32)
+        Traceback (most recent call last):
+        ...
+        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
+
+        sage: F62.<x,y,z> = PolynomialRing(GF(2^62-57), 3, order='degrevlex')
+        sage: f =  (2^62-57) * x^2 + 2 * y*z + 1
+        sage: f == poly_to_bytestring(f, F62)
+        Traceback (most recent call last):
+        ...
+        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
     """
     Poly = <MPolynomial_libsingular>p
     cdef poly *sp = Poly._poly
     cdef ring *r = R._ring
-    cdef ring *r2 = Poly._parent_ring
 
     base = Poly._parent._base
-    cdef int finitefield
-    if isinstance(base, IntegerRing_class):
-        finitefield = 0
-    elif isinstance(base, FiniteField_prime_modn):
-        finitefield = 1
-    else:
+    if not isinstance(base, FiniteField_prime_modn):
         raise RuntimeError("unsupported base field")
 
     cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
@@ -6035,29 +6049,12 @@ def poly_to_bytestring(p, MPolynomialRing_libsingular R):
     if not c_string:
         raise RuntimeError("malloc failed")
 
-    # si2sa:
-    # if isinstance(base, IntegerRing_class):
-    #     create an Integer z, then call z.set_from_mpz(<mpz_ptr>n)
-    # if isinstance(base, FiniteField_prime_modn):
-    #     return base(_ring.cf.cfInt(n, _ring.cf))
-
-    cdef number * c
     for i in range(nterms):
         # exp immediately follows coef in the C structure, so we just do a single memcpy
-        # that picks up the coef (a pointer) and the exp vector (ExpL_Size longs)
-        #memcpy(& c_string[i*term_size], & sp.coef, (r.ExpL_Size+1)*sizeof(long))
-        # p_GetCoeff(p,r) returns a 'number' (that's the type)
-        if finitefield:
-            val = r.cf.cfInt(sp.coef, r.cf)
-        else:
-            c = p_GetCoeff(sp, r2)
-            #if mpz_fits_slong_p(c):
-            #    val = mpz_get_si(c)
-            #else:
-            #    raise RuntimeError("coefficient doesn't fit in signed long")
-        #val = si2sa(p_GetCoeff(sp, r), r, Poly._parent._base);
-        #if val == 0:
-        #    raise RuntimeError("can't convert polynomial coefficient to long")
+        # that picks up the coef (a long) and the exp vector (ExpL_Size longs)
+        # Experimentation shows that for the supported finite fields sizes (less than 2^31)
+        # we can just copy the coef.  I don't understand its internal structure,
+        # but it seems to work.
         memcpy(& c_string[i*term_size], & sp.coef, term_size)
         sp = sp.next
 
@@ -6079,6 +6076,22 @@ def bytestring_to_poly(bytes bs, MPolynomialRing_libsingular R):
         sage: f = 27 * x^2 + y*z + 2
         sage: f == bytestring_to_poly(poly_to_bytestring(f, R), R)
         True
+
+        sage: F.<x,y,z> = PolynomialRing(GF(2^29-3), 3, order='degrevlex')
+        sage: f =  (2^29-4) * x^2 + 2 * y*z + 1
+        sage: f == bytestring_to_poly(poly_to_bytestring(f, F), F)
+        True
+
+        sage: F30.<x,y,z> = PolynomialRing(GF(2^30-35), 3, order='degrevlex')
+        sage: f =  (2^30-36) * x^2 + 2 * y*z + 1
+        sage: f == bytestring_to_poly(poly_to_bytestring(f, F30), F30)
+        True
+
+        sage: F31.<x,y,z> = PolynomialRing(GF(2^31-1), 3, order='degrevlex')
+        sage: f =  - x^2 + (2^30) * y*z + 1
+        sage: f == bytestring_to_poly(poly_to_bytestring(f, F31), F31)
+        True
+
     """
     cdef ring * r = R._ring
     cdef char * cs = <char *>bs
@@ -6089,9 +6102,6 @@ def bytestring_to_poly(bytes bs, MPolynomialRing_libsingular R):
 
     for i in range(length//term_size):
         np = p_Init(r)
-        #p_SetCoeff(np, <number *>(& s[i*term_size]), r)
-        #memcpy(& np.exp, & s[i*term_size + 1], r.ExpL_Size*sizeof(long));
-        #memcpy(& np.coef, & s[i*term_size], (r.ExpL_Size+1)*sizeof(long));
         memcpy(& np.coef, & cs[i*term_size], term_size)
         if tail:
             tail.next = np
