@@ -176,6 +176,15 @@ from cysignals.signals cimport sig_on, sig_off
 
 from sage.cpython.string cimport char_to_str, str_to_bytes
 
+from sage.libs.gmp.mpz cimport mpz_fits_slong_p, mpz_get_si
+from sage.libs.gmp.types cimport mpz_ptr, mpz_t
+
+from libc.stdlib cimport malloc, free
+from libc.string cimport memcpy
+
+from sage.rings.integer_ring cimport IntegerRing_class
+from sage.rings.finite_rings.finite_field_prime_modn import FiniteField_prime_modn
+
 # singular types
 from sage.libs.singular.decl cimport (ring, poly, ideal, intvec, number,
     currRing, n_unknown, n_Z, n_Zn, n_Znm, n_Z2m, sBucket, sBucketCreate,
@@ -5982,3 +5991,112 @@ cdef inline MPolynomial_libsingular new_MP(MPolynomialRing_libsingular parent, p
 
 cdef poly *MPolynomial_libsingular_get_element(object self) noexcept:
     return (<MPolynomial_libsingular>self)._poly
+
+
+def poly_to_bytestring(p, MPolynomialRing_libsingular R):
+    """
+    Encode poly ``p`` in ring ``R`` as a python bytestring and return it
+
+    TESTS::
+
+        sage: from sage.rings.polynomial.multi_polynomial_libsingular import poly_to_bytestring
+        sage: R.<x,y,z> = PolynomialRing(QQ, 3, order='degrevlex')
+        sage: f = 27/113 * x^2 + y*z + 1/2
+        sage: poly_to_bytestring(f, R)
+        Traceback (most recent call last):
+        ...
+        RuntimeError: can't convert polynomial coefficient to long
+        sage: f = 27/2 * x^2 + y*z + 2
+        sage: poly_to_bytestring(f, R)
+        Traceback (most recent call last):
+        ...
+        RuntimeError: can't convert polynomial coefficient to long
+    """
+    Poly = <MPolynomial_libsingular>p
+    cdef poly *sp = Poly._poly
+    cdef ring *r = R._ring
+    cdef ring *r2 = Poly._parent_ring
+
+    base = Poly._parent._base
+    cdef int finitefield
+    if isinstance(base, IntegerRing_class):
+        finitefield = 0
+    elif isinstance(base, FiniteField_prime_modn):
+        finitefield = 1
+    else:
+        raise RuntimeError("unsupported base field")
+
+    cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
+    cdef int nterms = p.number_of_terms()
+    cdef int length = nterms * term_size
+    cdef char * c_string = <char *> malloc(length)
+    cdef long val
+
+    if not c_string:
+        raise RuntimeError("malloc failed")
+
+    # si2sa:
+    # if isinstance(base, IntegerRing_class):
+    #     create an Integer z, then call z.set_from_mpz(<mpz_ptr>n)
+    # if isinstance(base, FiniteField_prime_modn):
+    #     return base(_ring.cf.cfInt(n, _ring.cf))
+
+    cdef number * c
+    for i in range(nterms):
+        # exp immediately follows coef in the C structure, so we just do a single memcpy
+        # that picks up the coef (a pointer) and the exp vector (ExpL_Size longs)
+        #memcpy(& c_string[i*term_size], & sp.coef, (r.ExpL_Size+1)*sizeof(long))
+        # p_GetCoeff(p,r) returns a 'number' (that's the type)
+        if finitefield:
+            val = r.cf.cfInt(sp.coef, r.cf)
+        else:
+            c = p_GetCoeff(sp, r2)
+            #if mpz_fits_slong_p(c):
+            #    val = mpz_get_si(c)
+            #else:
+            #    raise RuntimeError("coefficient doesn't fit in signed long")
+        #val = si2sa(p_GetCoeff(sp, r), r, Poly._parent._base);
+        #if val == 0:
+        #    raise RuntimeError("can't convert polynomial coefficient to long")
+        memcpy(& c_string[i*term_size], & sp.coef, term_size)
+        sp = sp.next
+
+    try:
+        py_byte_string = c_string[:length]
+    finally:
+        free(c_string)
+
+    return py_byte_string
+
+def bytestring_to_poly(bytes bs, MPolynomialRing_libsingular R):
+    """
+    Decode bytestring ``s`` as a polynomial in ring ``R`` and return it
+
+    TESTS::
+
+        sage: from sage.rings.polynomial.multi_polynomial_libsingular import poly_to_bytestring, bytestring_to_poly
+        sage: R.<x,y,z> = PolynomialRing(GF(97), 3, order='degrevlex')
+        sage: f = 27 * x^2 + y*z + 2
+        sage: f == bytestring_to_poly(poly_to_bytestring(f, R), R)
+        True
+    """
+    cdef ring * r = R._ring
+    cdef char * cs = <char *>bs
+    cdef int length = len(bs)
+    cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
+    cdef poly * head = NULL
+    cdef poly * tail = NULL
+
+    for i in range(length//term_size):
+        np = p_Init(r)
+        #p_SetCoeff(np, <number *>(& s[i*term_size]), r)
+        #memcpy(& np.exp, & s[i*term_size + 1], r.ExpL_Size*sizeof(long));
+        #memcpy(& np.coef, & s[i*term_size], (r.ExpL_Size+1)*sizeof(long));
+        memcpy(& np.coef, & cs[i*term_size], term_size)
+        if tail:
+            tail.next = np
+        if not head:
+            head = np
+        tail = np
+
+    return new_MP(R, head)

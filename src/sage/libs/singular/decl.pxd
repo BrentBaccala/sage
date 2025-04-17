@@ -206,6 +206,8 @@ cdef extern from "singular/Singular/libsingular.h":
 
         short N # number of variables
 
+        short ExpL_Size # size of exponent vector in longs
+
         int pCompIndex # index of components
         unsigned long bitmask # mask for getting single exponents
 
