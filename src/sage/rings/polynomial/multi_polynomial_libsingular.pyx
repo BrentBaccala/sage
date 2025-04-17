@@ -5225,6 +5225,68 @@ cdef class MPolynomial_libsingular(MPolynomial_libsingular_base):
 
         return new_MP(self._parent, p_Plus_mm_Mult_qq(p_Copy(self._poly, r), m._poly, q._poly, r))
 
+    def _bytestring_(self):
+        """
+        Encode this polynomial as a Python bytestring (if possible).
+
+        The conventional way of pickling these Singular polynomials is to construct a
+        dictionary mapping exponent tuples to coefficients, then pickle and unpickle it.
+        This can be slow.  Some types of polynomial rings allow us to pack up the Singular
+        data structures into a bytestring and pickle it instead.
+
+        We only support rings over finite fields at this time; all others should throw an exception.
+
+        Finite fields larger than 2^31-1 aren't supported.  They don't even use this class;
+        they use MPolynomial_polydict instead.
+
+        TESTS::
+
+            sage: R.<x,y,z> = PolynomialRing(QQ, 3, order='degrevlex')
+            sage: f = 27/113 * x^2 + y*z + 1/2
+            sage: f._bytestring_()
+            Traceback (most recent call last):
+            ...
+            RuntimeError: unsupported base field
+
+        See ``unpickle_MPolynomial_libsingular_bytestring`` for more tests.
+        """
+
+        Poly = <MPolynomial_libsingular>self
+
+        if not isinstance(Poly._parent, MPolynomialRing_libsingular):
+            raise RuntimeError("unsupported polynomial ring")
+        if not isinstance(Poly._parent._base, FiniteField_prime_modn):
+            raise RuntimeError("unsupported base field")
+
+        R = <MPolynomialRing_libsingular>Poly._parent
+        cdef poly *sp = Poly._poly
+        cdef ring *r = R._ring
+
+        cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
+        cdef int nterms = self.number_of_terms()
+        cdef int length = nterms * term_size
+        cdef char * c_string = <char *> malloc(length)
+        cdef long val
+
+        if not c_string:
+            raise RuntimeError("malloc failed")
+
+        for i in range(nterms):
+            # exp immediately follows coef in the C structure, so we just do a single memcpy
+            # that picks up the coef (a long) and the exp vector (ExpL_Size longs)
+            # Experimentation shows that for the supported finite fields sizes (less than 2^31)
+            # we can just copy the coef.  I don't understand its internal structure,
+            # but it seems to work.
+            memcpy(& c_string[i*term_size], & sp.coef, term_size)
+            sp = sp.next
+
+        try:
+            py_byte_string = c_string[:length]
+        finally:
+            free(c_string)
+
+        return py_byte_string
+
     def __reduce__(self):
         """
         Serialize this polynomial.
@@ -5252,8 +5314,11 @@ cdef class MPolynomial_libsingular(MPolynomial_libsingular_base):
             sage: parent(h(R.0,0))
             Univariate Polynomial Ring in x over Rational Field
         """
-        return unpickle_MPolynomial_libsingular, (self._parent,
-                                                  self.monomial_coefficients())
+        if isinstance(self._parent._base, FiniteField_prime_modn):
+            return unpickle_MPolynomial_libsingular_bytestring, (self._parent, self._bytestring_())
+        else:
+            return unpickle_MPolynomial_libsingular, (self._parent,
+                                                      self.monomial_coefficients())
 
     def _im_gens_(self, codomain, im_gens, base_map=None):
         """
@@ -5953,6 +6018,62 @@ def unpickle_MPolynomial_libsingular(MPolynomialRing_libsingular R, d):
     return new_MP(R, p)
 
 
+def unpickle_MPolynomial_libsingular_bytestring(MPolynomialRing_libsingular R, bytes bs):
+    """
+    Decode bytestring ``bs`` as a polynomial in ring ``R`` and return it as an MPlynomial_libsingular
+
+    TESTS::
+
+        sage: from sage.rings.polynomial.multi_polynomial_libsingular import unpickle_MPolynomial_libsingular_bytestring
+        sage: import pickle
+        sage: R.<x,y,z> = PolynomialRing(GF(97), 3, order='degrevlex')
+        sage: f = 27 * x^2 + y*z + 2
+        sage: f == unpickle_MPolynomial_libsingular_bytestring(R, f._bytestring_())
+        True
+        sage: f == pickle.loads(pickle.dumps(f))
+        True
+
+        sage: F29.<x,y,z> = PolynomialRing(GF(2^29-3), 3, order='degrevlex')
+        sage: f =  (2^29-4) * x^2 + 2 * y*z + 1
+        sage: f == unpickle_MPolynomial_libsingular_bytestring(F29, f._bytestring_())
+        True
+        sage: f == pickle.loads(pickle.dumps(f))
+        True
+
+        sage: F30.<x,y,z> = PolynomialRing(GF(2^30-35), 3, order='degrevlex')
+        sage: f =  (2^30-36) * x^2 + 2 * y*z + 1
+        sage: f == unpickle_MPolynomial_libsingular_bytestring(F30, f._bytestring_())
+        True
+        sage: f == pickle.loads(pickle.dumps(f))
+        True
+
+        sage: F31.<x,y,z> = PolynomialRing(GF(2^31-1), 3, order='degrevlex')
+        sage: f =  - x^2 + (2^30) * y*z + 1
+        sage: f == unpickle_MPolynomial_libsingular_bytestring(F31, f._bytestring_())
+        True
+        sage: f == pickle.loads(pickle.dumps(f))
+        True
+
+    """
+    cdef ring * r = R._ring
+    cdef char * cs = <char *>bs
+    cdef int length = len(bs)
+    cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
+    cdef poly * head = NULL
+    cdef poly * tail = NULL
+
+    for i in range(length//term_size):
+        np = p_Init(r)
+        memcpy(& np.coef, & cs[i*term_size], term_size)
+        if tail:
+            tail.next = np
+        if not head:
+            head = np
+        tail = np
+
+    return new_MP(R, head)
+
+
 cdef inline poly *addwithcarry(poly *tempvector, poly *maxvector, int pos, ring *_ring) noexcept:
     if p_GetExp(tempvector, pos, _ring) < p_GetExp(maxvector, pos, _ring):
         p_SetExp(tempvector, pos, p_GetExp(tempvector, pos, _ring)+1, _ring)
@@ -5991,122 +6112,3 @@ cdef inline MPolynomial_libsingular new_MP(MPolynomialRing_libsingular parent, p
 
 cdef poly *MPolynomial_libsingular_get_element(object self) noexcept:
     return (<MPolynomial_libsingular>self)._poly
-
-
-def poly_to_bytestring(p, MPolynomialRing_libsingular R):
-    """
-    Encode poly ``p`` in ring ``R`` as a python bytestring and return it
-
-    TESTS::
-
-    We only support finite fields at this time; all others should throw an exception.
-
-        sage: from sage.rings.polynomial.multi_polynomial_libsingular import poly_to_bytestring
-        sage: R.<x,y,z> = PolynomialRing(QQ, 3, order='degrevlex')
-        sage: f = 27/113 * x^2 + y*z + 1/2
-        sage: poly_to_bytestring(f, R)
-        Traceback (most recent call last):
-        ...
-        RuntimeError: unsupported base field
-
-    Finite fields larger than 2^31-1 aren't supported.
-
-        sage: F31.<x,y,z> = PolynomialRing(GF(2^31+11), 3, order='degrevlex')
-        sage: f =  - x^2 + (2^30) * y*z + 1
-        sage: poly_to_bytestring(f, F31)
-        Traceback (most recent call last):
-        ...
-        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
-
-        sage: F32.<x,y,z> = PolynomialRing(GF(2^32-5), 3, order='degrevlex')
-        sage: f =  (2^32-6) * x^2 + 2 * y*z + 1
-        sage: f == poly_to_bytestring(f, F32)
-        Traceback (most recent call last):
-        ...
-        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
-
-        sage: F62.<x,y,z> = PolynomialRing(GF(2^62-57), 3, order='degrevlex')
-        sage: f =  (2^62-57) * x^2 + 2 * y*z + 1
-        sage: f == poly_to_bytestring(f, F62)
-        Traceback (most recent call last):
-        ...
-        TypeError: Argument 'R' has incorrect type (expected sage.rings.polynomial.multi_polynomial_libsingular.MPolynomialRing_libsingular, got MPolynomialRing_polydict_domain_with_category)
-    """
-    Poly = <MPolynomial_libsingular>p
-    cdef poly *sp = Poly._poly
-    cdef ring *r = R._ring
-
-    base = Poly._parent._base
-    if not isinstance(base, FiniteField_prime_modn):
-        raise RuntimeError("unsupported base field")
-
-    cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
-    cdef int nterms = p.number_of_terms()
-    cdef int length = nterms * term_size
-    cdef char * c_string = <char *> malloc(length)
-    cdef long val
-
-    if not c_string:
-        raise RuntimeError("malloc failed")
-
-    for i in range(nterms):
-        # exp immediately follows coef in the C structure, so we just do a single memcpy
-        # that picks up the coef (a long) and the exp vector (ExpL_Size longs)
-        # Experimentation shows that for the supported finite fields sizes (less than 2^31)
-        # we can just copy the coef.  I don't understand its internal structure,
-        # but it seems to work.
-        memcpy(& c_string[i*term_size], & sp.coef, term_size)
-        sp = sp.next
-
-    try:
-        py_byte_string = c_string[:length]
-    finally:
-        free(c_string)
-
-    return py_byte_string
-
-def bytestring_to_poly(bytes bs, MPolynomialRing_libsingular R):
-    """
-    Decode bytestring ``s`` as a polynomial in ring ``R`` and return it
-
-    TESTS::
-
-        sage: from sage.rings.polynomial.multi_polynomial_libsingular import poly_to_bytestring, bytestring_to_poly
-        sage: R.<x,y,z> = PolynomialRing(GF(97), 3, order='degrevlex')
-        sage: f = 27 * x^2 + y*z + 2
-        sage: f == bytestring_to_poly(poly_to_bytestring(f, R), R)
-        True
-
-        sage: F.<x,y,z> = PolynomialRing(GF(2^29-3), 3, order='degrevlex')
-        sage: f =  (2^29-4) * x^2 + 2 * y*z + 1
-        sage: f == bytestring_to_poly(poly_to_bytestring(f, F), F)
-        True
-
-        sage: F30.<x,y,z> = PolynomialRing(GF(2^30-35), 3, order='degrevlex')
-        sage: f =  (2^30-36) * x^2 + 2 * y*z + 1
-        sage: f == bytestring_to_poly(poly_to_bytestring(f, F30), F30)
-        True
-
-        sage: F31.<x,y,z> = PolynomialRing(GF(2^31-1), 3, order='degrevlex')
-        sage: f =  - x^2 + (2^30) * y*z + 1
-        sage: f == bytestring_to_poly(poly_to_bytestring(f, F31), F31)
-        True
-
-    """
-    cdef ring * r = R._ring
-    cdef char * cs = <char *>bs
-    cdef int length = len(bs)
-    cdef int term_size = (r.ExpL_Size + 1) * sizeof(long)
-    cdef poly * head = NULL
-    cdef poly * tail = NULL
-
-    for i in range(length//term_size):
-        np = p_Init(r)
-        memcpy(& np.coef, & cs[i*term_size], term_size)
-        if tail:
-            tail.next = np
-        if not head:
-            head = np
-        tail = np
-
-    return new_MP(R, head)
